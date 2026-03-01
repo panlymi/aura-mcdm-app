@@ -75,7 +75,30 @@ if uploaded_file is not None:
     
     submit_button = st.sidebar.button("Calculate AURA", type="primary", use_container_width=True)
         
+    @st.dialog("Weightage Verification")
+    def confirm_weight_warning(t_weight):
+        st.warning(f"The total weightage is **{t_weight:g}**, which is not exactly equal to 1.")
+        st.write("Do you want to proceed with the calculation anyway, or go back to adjust the weightage?")
+        col1, col2 = st.columns(2)
+        if col1.button("Proceed anyway", type="primary", use_container_width=True):
+            st.session_state.force_calculate = True
+            st.rerun()
+        if col2.button("Go back", use_container_width=True):
+            st.rerun()
+
+    if "force_calculate" not in st.session_state:
+        st.session_state.force_calculate = False
+
+    total_weight = sum(weights.values())
+
     if submit_button:
+        if abs(total_weight - 1.0) > 1e-6:
+            confirm_weight_warning(total_weight)
+        else:
+            st.session_state.force_calculate = True
+            
+    if st.session_state.force_calculate:
+        st.session_state.force_calculate = False
         try:
             with st.spinner("Calculating..."):
                 results_df = calculate_aura(numeric_df, weights, directions, alpha, p_metric)
