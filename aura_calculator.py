@@ -44,38 +44,33 @@ def calculate_aura(data: pd.DataFrame, weights: dict, directions: dict, alpha: f
     nis = weighted_df.min()
     as_sol = weighted_df.mean()
 
-    # 4. Calculate Distances (using Minkowski distance)
-    distances = pd.DataFrame(index=df.index)
-    
+    # Calculate raw distances (using Minkowski distance)
+    # Adding epsilon to zero values to avoid perfectly zero distance which breaks things sometimes
     if p == 1:
-        distances['D_plus'] = (abs(weighted_df - pis)).sum(axis=1)
-        distances['D_minus'] = (abs(weighted_df - nis)).sum(axis=1)
-        distances['D_avg'] = (abs(weighted_df - as_sol)).sum(axis=1)
+        d_pos_raw = (abs(weighted_df - pis)).sum(axis=1)
+        d_neg_raw = (abs(weighted_df - nis)).sum(axis=1)
+        d_avg_raw = (abs(weighted_df - as_sol)).sum(axis=1)
     else:
-        # Default to Euclidean (p=2) or generic Minkowski if extended later
-        distances['D_plus'] = np.power((np.power(abs(weighted_df - pis), p)).sum(axis=1), 1/p)
-        distances['D_minus'] = np.power((np.power(abs(weighted_df - nis), p)).sum(axis=1), 1/p)
-        distances['D_avg'] = np.power((np.power(abs(weighted_df - as_sol), p)).sum(axis=1), 1/p)
+        # Default to Euclidean (p=2)
+        d_pos_raw = np.power((np.power(abs(weighted_df - pis), p)).sum(axis=1), 1/p)
+        d_neg_raw = np.power((np.power(abs(weighted_df - nis), p)).sum(axis=1), 1/p)
+        d_avg_raw = np.power((np.power(abs(weighted_df - as_sol), p)).sum(axis=1), 1/p)
 
-    # Calculate Relative Closeness (Standard TOPSIS base)
-    # Adding a small epsilon to avoid division by zero
-    epsilon = 1e-9
-    rc = distances['D_minus'] / (distances['D_plus'] + distances['D_minus'] + epsilon)
-    
-    # Calculate Relative Distance to Average (normalized)
-    max_d_avg = distances['D_avg'].max()
-    if max_d_avg == 0:
-        rel_d_avg = 0
-    else:
-        rel_d_avg = distances['D_avg'] / max_d_avg
+    # Apply Correction Factor (Penalty Term)
+    def correct(d):
+        sigma = np.max(d) - np.min(d)
+        return d + sigma * (d ** 2)
 
-    # 5. Final Utility Score (Adaptive Formula)
-    # Balances standard relative closeness with the normalized distance to the average solution
-    # The AURA technique often customizes standard ranking metrics based on alpha
-    distances['Utility_Score'] = alpha * rc + (1 - alpha) * rel_d_avg
+    distances = pd.DataFrame(index=df.index)
+    distances['D_plus'] = correct(d_pos_raw)
+    distances['D_minus'] = correct(d_neg_raw)
+    distances['D_avg'] = correct(d_avg_raw)
 
-    # 6. Ranking
-    distances['Rank'] = distances['Utility_Score'].rank(ascending=False, method='min').astype(int)
+    # 5. Final Utility Score (Exact AURA Formula)
+    distances['Utility_Score'] = (alpha * (distances['D_plus'] - distances['D_minus']) + (1 - alpha) * distances['D_avg']) / 2
+
+    # 6. Ranking (Lowest score gets highest rank)
+    distances['Rank'] = distances['Utility_Score'].rank(ascending=True, method='min').astype(int)
     
     # Merge results back
     results = df.copy()

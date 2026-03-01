@@ -58,7 +58,7 @@ if uploaded_file is not None:
             st.markdown(f"**{criterion}**")
             col1, col2 = st.columns(2)
             with col1:
-                weight = st.number_input(f"Weight", min_value=0.0, value=1.0, key=f"w_{criterion}")
+                weight = st.number_input(f"Weight", min_value=0.0, value=1.0, format="%.6f", step=0.000001, key=f"w_{criterion}")
                 weights[criterion] = weight
             with col2:
                 direction = st.selectbox(f"Direction", ["maximize", "minimize"], key=f"d_{criterion}")
@@ -92,7 +92,7 @@ if uploaded_file is not None:
             st.subheader("Utility Scores Visualization")
             chart_data = results_df[['Utility Score']].copy()
             # Sort by rank for the chart
-            chart_data = chart_data.sort_values(by='Utility Score', ascending=False)
+            chart_data = chart_data.sort_values(by='Utility Score', ascending=True)
             st.bar_chart(chart_data)
             
         except Exception as e:
