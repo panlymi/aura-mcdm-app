@@ -2,14 +2,17 @@ import streamlit as st
 import pandas as pd
 from aura_calculator import calculate_aura
 from aras_calculator import calculate_aras
+from fuzzy_aras_calculator import calculate_fuzzy_aras
+from fuzzy_parser import parse_fuzzy_matrix, parse_fuzzy_weights
 
-st.set_page_config(page_title="MCDM Calculator (AURA & ARAS)", layout="wide")
+st.set_page_config(page_title="MCDM Calculator", layout="wide")
 
 st.title("Multi-Criteria Decision Making Calculator")
 st.markdown("""
-This application implements two Multi-Criteria Decision Making (MCDM) methods:
+This application implements three Multi-Criteria Decision Making (MCDM) methods:
 1. **Adaptive Utility Ranking Algorithm (AURA)**
 2. **Additive Ratio Assessment (ARAS)**
+3. **Fuzzy Additive Ratio Assessment (Fuzzy ARAS)**
 
 Upload your decision matrix as an Excel or CSV file. The file should have alternatives as rows and criteria as columns.
 The first column should contain the names of the alternatives.
@@ -18,7 +21,10 @@ The first column should contain the names of the alternatives.
 st.sidebar.header("Configuration")
 
 # MCDM Method Selection
-mcdm_method = st.sidebar.selectbox("Select MCDM Method", ["AURA", "ARAS"])
+mcdm_method = st.sidebar.selectbox("Select MCDM Method", ["AURA", "ARAS", "Fuzzy ARAS"])
+
+if mcdm_method == "Fuzzy ARAS":
+    fuzzy_input_format = st.sidebar.radio("Fuzzy Input Format", ["Linguistic Terms", "Comma-Separated TFNs"])
 
 # File uploader
 uploaded_file = st.sidebar.file_uploader("Upload Decision Matrix", type=["xlsx", "csv"])
@@ -33,13 +39,20 @@ if uploaded_file is not None:
     st.subheader(f"Input Decision Matrix ({mcdm_method})")
     st.dataframe(df)
     
-    # Ensure numeric columns only
-    numeric_df = df.select_dtypes(include=['number'])
-    if numeric_df.empty:
-        st.error("The uploaded file does not contain numeric data suitable for MCDM.")
-        st.stop()
-        
-    criteria = numeric_df.columns.tolist()
+    # Validation & Parsing
+    if mcdm_method != "Fuzzy ARAS":
+        numeric_df = df.select_dtypes(include=['number'])
+        if numeric_df.empty:
+            st.error("The uploaded file does not contain numeric data suitable for crisp MCDM.")
+            st.stop()
+        criteria = numeric_df.columns.tolist()
+        matrix_to_calc = numeric_df
+    else:
+        criteria = df.columns.tolist()
+        parsed_df = parse_fuzzy_matrix(df, fuzzy_input_format)
+        if parsed_df is None:
+            st.stop() # Parsing error displayed inside parser
+        matrix_to_calc = parsed_df
     
     # Method specific parameters
     if mcdm_method == "AURA":
@@ -58,27 +71,56 @@ if uploaded_file is not None:
     
     st.sidebar.subheader("Criteria Weights & Directions")
     
-    # Initialize dataframe for data editor
-    weights_df_init = pd.DataFrame({
-        "Criterion": criteria,
-        "Weight": 1.0,
-        "Direction": "maximize"
-    })
-    
-    # Data editor for fast multi-row input (supports Enter key navigation & unformatted decimals)
-    edited_df = st.sidebar.data_editor(
-        weights_df_init,
-        column_config={
-            "Criterion": st.column_config.TextColumn("Criterion", disabled=True),
-            "Weight": st.column_config.NumberColumn("Weight", min_value=0.0, format=None, step=None), 
-            "Direction": st.column_config.SelectboxColumn("Direction", options=["maximize", "minimize"])
-        },
-        hide_index=True,
-        use_container_width=True
-    )
-    
-    # Extract edited values back to dictionaries
-    weights = dict(zip(edited_df["Criterion"], edited_df["Weight"]))
+    # Initialize dataframe for data editor based on method
+    if mcdm_method != "Fuzzy ARAS":
+        weights_df_init = pd.DataFrame({
+            "Criterion": criteria,
+            "Weight": 1.0,
+            "Direction": "maximize"
+        })
+        edited_df = st.sidebar.data_editor(
+            weights_df_init,
+            column_config={
+                "Criterion": st.column_config.TextColumn("Criterion", disabled=True),
+                "Weight": st.column_config.NumberColumn("Weight", min_value=0.0, format=None, step=None), 
+                "Direction": st.column_config.SelectboxColumn("Direction", options=["maximize", "minimize"])
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+        weights = dict(zip(edited_df["Criterion"], edited_df["Weight"]))
+    else:
+        # Fuzzy ARAS Weights Config
+        if fuzzy_input_format == "Linguistic Terms":
+            default_weight = "Good"
+            st.sidebar.markdown("**Valid terms:** Poor, Fair, Good, Very Good (or P, F, G, VG)")
+        else:
+            default_weight = "1, 2, 3"
+            st.sidebar.markdown("**Format:** `l, m, u` (e.g., `1, 2, 3`)")
+            
+        weights_df_init = pd.DataFrame({
+            "Criterion": criteria,
+            "Fuzzy Weight": default_weight,
+            "Direction": "maximize"
+        })
+        
+        edited_df = st.sidebar.data_editor(
+            weights_df_init,
+            column_config={
+                "Criterion": st.column_config.TextColumn("Criterion", disabled=True),
+                "Fuzzy Weight": st.column_config.TextColumn("Fuzzy Weight"),
+                "Direction": st.column_config.SelectboxColumn("Direction", options=["maximize", "minimize"])
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+        
+        raw_weights = dict(zip(edited_df["Criterion"], edited_df["Fuzzy Weight"]))
+        weights = parse_fuzzy_weights(raw_weights, fuzzy_input_format)
+        if weights is None:
+            st.stop()
+            
+    # Always extract directions
     directions = dict(zip(edited_df["Criterion"], edited_df["Direction"]))
     
     submit_button = st.sidebar.button(f"Calculate {mcdm_method}", type="primary", use_container_width=True)
@@ -97,10 +139,13 @@ if uploaded_file is not None:
     if "force_calculate" not in st.session_state:
         st.session_state.force_calculate = False
 
-    total_weight = sum(weights.values())
+    # Calculate weight validation only for non-fuzzy methods
+    requires_validation = mcdm_method != "Fuzzy ARAS"
+    if requires_validation:
+        total_weight = sum(weights.values())
 
     if submit_button:
-        if abs(total_weight - 1.0) > 1e-6:
+        if requires_validation and abs(total_weight - 1.0) > 1e-6:
             confirm_weight_warning(total_weight)
         else:
             st.session_state.force_calculate = True
@@ -110,9 +155,11 @@ if uploaded_file is not None:
         try:
             with st.spinner(f"Calculating {mcdm_method}..."):
                 if mcdm_method == "AURA":
-                    results_df = calculate_aura(numeric_df, weights, directions, alpha, p_metric)
+                    results_df = calculate_aura(matrix_to_calc, weights, directions, alpha, p_metric)
+                elif mcdm_method == "ARAS":
+                    results_df = calculate_aras(matrix_to_calc, weights, directions)
                 else:
-                    results_df = calculate_aras(numeric_df, weights, directions)
+                    results_df = calculate_fuzzy_aras(matrix_to_calc, weights, directions)
             
             st.subheader(f"{mcdm_method} Results & Ranking")
             
@@ -124,10 +171,14 @@ if uploaded_file is not None:
                 cols_to_format = ['Utility Score', 'D+ (PIS)', 'D- (NIS)', 'D_avg (AS)']
                 score_col = 'Utility Score'
                 sort_ascending = True # AURA: Lowest score is best
-            else:
+            elif mcdm_method == "ARAS":
                 cols_to_format = ['S (Optimality)', 'K (Utility Degree)']
                 score_col = 'K (Utility Degree)'
                 sort_ascending = False # ARAS: Highest degree is best
+            else:
+                cols_to_format = ['S_i (Crisp)', 'K_i (Utility Degree)']
+                score_col = 'K_i (Utility Degree)'
+                sort_ascending = False # Fuzzy ARAS: Highest degree is best
                 
             for col in cols_to_format:
                 if col in display_df.columns:
@@ -154,14 +205,24 @@ else:
     st.info("Please upload a decision matrix file to begin.")
     
     # Offer a template download
-    st.markdown("### Sample Data Format")
+    st.markdown("### Sample Data Format (Crisp AURA/ARAS)")
     st.markdown("""
-    Your file should look like this (with Alternative names in first column):
-    
     | Alternative | Cost | Quality | Durability |
     |---|---|---|---|
     | Car A | 20000 | 8 | 5 |
     | Car B | 25000 | 9 | 7 |
-    | Car C | 18000 | 6 | 4 |
     """)
-
+    st.markdown("### Sample Data Format (Fuzzy ARAS - Linguistic)")
+    st.markdown("""
+    | Alternative | Cost | Quality | Durability |
+    |---|---|---|---|
+    | Car A | High | Good | Fair |
+    | Car B | Very High | Very Good | Good |
+    """)
+    st.markdown("### Sample Data Format (Fuzzy ARAS - Comma Separated TFN)")
+    st.markdown("""
+    | Alternative | Cost | Quality | Durability |
+    |---|---|---|---|
+    | Car A | 18000, 20000, 22000 | 7, 8, 9 | 4, 5, 6 |
+    | Car B | 23000, 25000, 26000 | 8, 9, 10| 6, 7, 8 |
+    """)
