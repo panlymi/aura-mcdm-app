@@ -49,22 +49,31 @@ if uploaded_file is not None:
     )
     
     st.sidebar.subheader("Criteria Weights & Directions")
-    weights = {}
-    directions = {}
     
-    # Form for weights and directions
-    with st.sidebar.form("criteria_form"):
-        for criterion in criteria:
-            st.markdown(f"**{criterion}**")
-            col1, col2 = st.columns(2)
-            with col1:
-                weight = st.number_input(f"Weight", min_value=0.0, value=1.0, format="%.6f", step=0.000001, key=f"w_{criterion}")
-                weights[criterion] = weight
-            with col2:
-                direction = st.selectbox(f"Direction", ["maximize", "minimize"], key=f"d_{criterion}")
-                directions[criterion] = direction
-        
-        submit_button = st.form_submit_button("Calculate AURA")
+    # Initialize dataframe for data editor
+    weights_df_init = pd.DataFrame({
+        "Criterion": criteria,
+        "Weight": 1.0,
+        "Direction": "maximize"
+    })
+    
+    # Data editor for fast multi-row input (supports Enter key navigation & unformatted decimals)
+    edited_df = st.sidebar.data_editor(
+        weights_df_init,
+        column_config={
+            "Criterion": st.column_config.TextColumn("Criterion", disabled=True),
+            "Weight": st.column_config.NumberColumn("Weight", min_value=0.0, format=None, step=None), 
+            "Direction": st.column_config.SelectboxColumn("Direction", options=["maximize", "minimize"])
+        },
+        hide_index=True,
+        use_container_width=True
+    )
+    
+    # Extract edited values back to dictionaries
+    weights = dict(zip(edited_df["Criterion"], edited_df["Weight"]))
+    directions = dict(zip(edited_df["Criterion"], edited_df["Direction"]))
+    
+    submit_button = st.sidebar.button("Calculate AURA", type="primary", use_container_width=True)
         
     if submit_button:
         try:
