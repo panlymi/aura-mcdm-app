@@ -47,7 +47,8 @@ if uploaded_file is not None:
         df = pd.read_excel(uploaded_file, index_col=0)
     
     st.subheader(f"Input Decision Matrix ({mcdm_method})")
-    st.dataframe(df)
+    st.markdown("*You can edit the values below before running the calculation.*")
+    df = st.data_editor(df, use_container_width=True, num_rows="fixed")
     
     # Validation & Parsing
     if mcdm_method != "Fuzzy ARAS":
