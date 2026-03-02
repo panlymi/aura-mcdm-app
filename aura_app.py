@@ -7,6 +7,7 @@ from fuzzy_aras_calculator import calculate_fuzzy_aras
 from syai_calculator import calculate_syai
 from arie_calculator import calculate_arie
 from fuzzy_parser import parse_fuzzy_matrix, parse_fuzzy_weights
+import numpy as np
 
 # Function to generate sample CSV templates
 @st.cache_data
@@ -39,6 +40,13 @@ if mcdm_method == "Fuzzy ARAS":
         fuzzy_weight_format = st.sidebar.radio("Fuzzy Weight Format", ["Linguistic Terms", "Comma-Separated TFNs"])
     else:
         fuzzy_weight_format = "Crisp"
+
+# Initialize default parameters for all methods to support Comparative Analysis
+alpha = 0.5
+p_metric = 1
+beta = 0.5
+gamma = 1.0
+kappa = 0.5
 
 # Method specific parameters in sidebar
 if mcdm_method == "AURA":
@@ -179,7 +187,7 @@ else:
 
     if is_valid:
         # Create Tabs
-        tab_setup, tab_results, tab_steps = st.tabs(["📝 Data Setup & Configuration", "📊 Results & Rankings", "🧮 Detailed Steps"])
+        tab_setup, tab_results, tab_steps, tab_sensitivity, tab_compare = st.tabs(["📝 Data Setup & Configuration", "📊 Results & Rankings", "🧮 Detailed Steps", "📈 Sensitivity Analysis", "⚖️ Comparative Analysis"])
         
         with tab_setup:
             st.subheader("1. Verify Decision Matrix")
@@ -699,3 +707,218 @@ else:
                             try:
                                 st.dataframe(steps_dict['Step 7: Final Result and Ranking'][['Rank', 'K_i (Utility Degree)', 'S_i (Crisp)']], use_container_width=True)
                             except KeyError: pass
+
+        # --- SENSITIVITY ANALYSIS TAB ---
+        with tab_sensitivity:
+            if not st.session_state.calculated:
+                st.info("Sensitivity analysis will appear here after you run the calculation in the Setup tab.")
+            else:
+                st.subheader(f"📈 Sensitivity Analysis ({mcdm_method})")
+                st.markdown("Analyze how changes in criteria weights or method parameters affect the final rankings.")
+                
+                # 1. Weight Sensitivity Analysis
+                if mcdm_method == "Fuzzy ARAS" and weight_type == "Fuzzy":
+                    st.warning("Weight Sensitivity Analysis is currently supported for Crisp weights only.")
+                else:
+                    st.markdown("### ⚖️ Weight Sensitivity Analysis")
+                    st.markdown("Select a criterion to vary its weight from 0.0 to 1.0. Other criteria weights will be adjusted proportionally to maintain a sum of 1.0.")
+                    
+                    base_weights = weights.copy()
+                    
+                    if len(base_weights) > 1:
+                        selected_criterion = st.selectbox("Select Criterion to Vary", list(base_weights.keys()))
+                        
+                        sensitivity_steps = 11
+                        w_range = np.linspace(0.0, 1.0, sensitivity_steps)
+                        
+                        sensitivity_results = []
+                        original_weights = base_weights.copy()
+                        w_k_orig = original_weights[selected_criterion]
+                        
+                        progress_text = "Running Weight Sensitivity Analysis. Please wait."
+                        my_bar = st.progress(0, text=progress_text)
+                        
+                        for i, w_k_new in enumerate(w_range):
+                            new_weights = {}
+                            for crit, w_val in original_weights.items():
+                                if crit == selected_criterion:
+                                    new_weights[crit] = w_k_new
+                                else:
+                                    if w_k_orig == 1.0:
+                                        new_weights[crit] = (1.0 - w_k_new) / (len(original_weights) - 1)
+                                    else:
+                                        new_weights[crit] = w_val * (1.0 - w_k_new) / (1.0 - w_k_orig)
+                            
+                            try:
+                                if mcdm_method == "AURA":
+                                    temp_res = calculate_aura(matrix_to_calc, new_weights, directions, alpha, p_metric)
+                                    score_col_sens = 'Utility Score'
+                                elif mcdm_method == "ARAS":
+                                    temp_res = calculate_aras(matrix_to_calc, new_weights, directions)
+                                    score_col_sens = 'K (Utility Degree)'
+                                elif mcdm_method == "SYAI":
+                                    temp_res = calculate_syai(matrix_to_calc, new_weights, directions, beta)
+                                    score_col_sens = 'Closeness Score (D_i)'
+                                elif mcdm_method == "ARIE":
+                                    temp_res = calculate_arie(matrix_to_calc, new_weights, directions, gamma, kappa)
+                                    score_col_sens = 'Relative Closeness (RC_i)'
+                                else: 
+                                    temp_res, _ = calculate_fuzzy_aras(matrix_to_calc, new_weights, directions, return_steps=True)
+                                    score_col_sens = 'K_i (Utility Degree)'
+                                
+                                for alt_idx in temp_res.index:
+                                    sensitivity_results.append({
+                                        'Weight': w_k_new,
+                                        'Alternative': alt_idx,
+                                        'Score': temp_res.loc[alt_idx, score_col_sens]
+                                    })
+                            except Exception:
+                                pass
+                                
+                            my_bar.progress((i + 1) / sensitivity_steps, text=progress_text)
+                            
+                        my_bar.empty()
+                        
+                        if sensitivity_results:
+                            sens_df = pd.DataFrame(sensitivity_results)
+                            st.markdown(f"**Impact of varying '{selected_criterion}' weight on Alternative Scores:**")
+                            chart = alt.Chart(sens_df).mark_line(point=True).encode(
+                                x=alt.X('Weight:Q', title=f"Weight of '{selected_criterion}' (0 to 1)"),
+                                y=alt.Y('Score:Q', title="Score", scale=alt.Scale(zero=False)),
+                                color=alt.Color('Alternative:N', legend=alt.Legend(orient='right')),
+                                tooltip=['Alternative', alt.Tooltip('Weight', format='.2f'), alt.Tooltip('Score', format='.4f')]
+                            ).properties(height=400).interactive()
+                            st.altair_chart(chart, use_container_width=True)
+                    else:
+                        st.info("Weight Sensitivity Analysis requires at least 2 criteria.")
+                        
+                # 2. Parameter Sensitivity Analysis
+                if mcdm_method in ["AURA", "SYAI", "ARIE"]:
+                    st.markdown("---")
+                    st.markdown(f"### ⚙️ {mcdm_method} Parameter Sensitivity")
+                    
+                    param_results = []
+                    
+                    if mcdm_method == "AURA":
+                        st.markdown("**Varying Balance Parameter (α) from 0.0 to 1.0:**")
+                        param_range = np.linspace(0.0, 1.0, 11)
+                        param_name = "Alpha (α)"
+                        score_col_sens = 'Utility Score'
+                        for p_val in param_range:
+                            try:
+                                temp_res = calculate_aura(matrix_to_calc, base_weights, directions, p_val, p_metric)
+                                for alt_idx in temp_res.index:
+                                    param_results.append({'Parameter': p_val, 'Alternative': alt_idx, 'Score': temp_res.loc[alt_idx, score_col_sens]})
+                            except Exception: pass
+                            
+                    elif mcdm_method == "SYAI":
+                        st.markdown("**Varying Closeness Parameter (β) from 0.0 to 1.0:**")
+                        param_range = np.linspace(0.0, 1.0, 11)
+                        param_name = "Beta (β)"
+                        score_col_sens = 'Closeness Score (D_i)'
+                        for p_val in param_range:
+                            try:
+                                temp_res = calculate_syai(matrix_to_calc, base_weights, directions, p_val)
+                                for alt_idx in temp_res.index:
+                                    param_results.append({'Parameter': p_val, 'Alternative': alt_idx, 'Score': temp_res.loc[alt_idx, score_col_sens]})
+                            except Exception: pass
+                            
+                    elif mcdm_method == "ARIE":
+                        st.markdown("**Varying Sensitivity Parameter (γ) from 0.5 to 3.0 (fixing κ):**")
+                        param_range = np.linspace(0.5, 3.0, 11)
+                        param_name = "Gamma (γ)"
+                        score_col_sens = 'Relative Closeness (RC_i)'
+                        for p_val in param_range:
+                            try:
+                                temp_res = calculate_arie(matrix_to_calc, base_weights, directions, p_val, kappa)
+                                for alt_idx in temp_res.index:
+                                    param_results.append({'Parameter': p_val, 'Alternative': alt_idx, 'Score': temp_res.loc[alt_idx, score_col_sens]})
+                            except Exception: pass
+                            
+                    if param_results:
+                        p_df = pd.DataFrame(param_results)
+                        p_chart = alt.Chart(p_df).mark_line(point=True).encode(
+                            x=alt.X('Parameter:Q', title=param_name),
+                            y=alt.Y('Score:Q', title="Score", scale=alt.Scale(zero=False)),
+                            color=alt.Color('Alternative:N', legend=alt.Legend(orient='right')),
+                            tooltip=['Alternative', alt.Tooltip('Parameter', format='.2f'), alt.Tooltip('Score', format='.4f')]
+                        ).properties(height=400).interactive()
+                        st.altair_chart(p_chart, use_container_width=True)
+                        
+                    if mcdm_method == "ARIE":
+                        st.markdown("**Varying Balancing Parameter (κ) from 0.0 to 1.0 (fixing γ):**")
+                        param_results_k = []
+                        param_range_k = np.linspace(0.0, 1.0, 11)
+                        for k_val in param_range_k:
+                            try:
+                                temp_res = calculate_arie(matrix_to_calc, base_weights, directions, gamma, k_val)
+                                for alt_idx in temp_res.index:
+                                    param_results_k.append({'Parameter': k_val, 'Alternative': alt_idx, 'Score': temp_res.loc[alt_idx, score_col_sens]})
+                            except Exception: pass
+                        if param_results_k:
+                            p_df_k = pd.DataFrame(param_results_k)
+                            p_chart_k = alt.Chart(p_df_k).mark_line(point=True).encode(
+                                x=alt.X('Parameter:Q', title="Kappa (κ)"),
+                                y=alt.Y('Score:Q', title="Score", scale=alt.Scale(zero=False)),
+                                color=alt.Color('Alternative:N', legend=alt.Legend(orient='right')),
+                                tooltip=['Alternative', alt.Tooltip('Parameter', format='.2f'), alt.Tooltip('Score', format='.4f')]
+                            ).properties(height=400).interactive()
+                            st.altair_chart(p_chart_k, use_container_width=True)
+
+        # --- COMPARATIVE ANALYSIS TAB ---
+        with tab_compare:
+            if not st.session_state.calculated:
+                st.info("Comparative analysis will appear here after you run the calculation in the Setup tab.")
+            elif mcdm_method == "Fuzzy ARAS":
+                st.warning("Comparative Analysis is designed for Crisp data methods (AURA, ARAS, SYAI, ARIE). Please select a Crisp method in the global settings to use this feature.")
+            else:
+                st.subheader("⚖️ Comparative Analysis")
+                st.markdown("Select multiple MCDM methods below to compare their final rankings side-by-side using the current matrix and criteria weights.")
+                
+                compare_methods = st.multiselect("Select Methods to Compare", ["AURA", "ARAS", "SYAI", "ARIE"], default=["AURA", "ARAS", "SYAI", "ARIE"])
+                
+                if compare_methods:
+                    compare_results = {}
+                    for meth in compare_methods:
+                        try:
+                            if meth == "AURA":
+                                temp_res = calculate_aura(matrix_to_calc, weights, directions, alpha, p_metric)
+                                score_col = 'Utility Score'
+                                sort_asc = True
+                            elif meth == "ARAS":
+                                temp_res = calculate_aras(matrix_to_calc, weights, directions)
+                                score_col = 'K (Utility Degree)'
+                                sort_asc = False
+                            elif meth == "SYAI":
+                                temp_res = calculate_syai(matrix_to_calc, weights, directions, beta)
+                                score_col = 'Closeness Score (D_i)'
+                                sort_asc = False
+                            elif meth == "ARIE":
+                                temp_res = calculate_arie(matrix_to_calc, weights, directions, gamma, kappa)
+                                score_col = 'Relative Closeness (RC_i)'
+                                sort_asc = False
+                            
+                            # Calculate ranks: ascending=sort_asc
+                            temp_res['Rank'] = temp_res[score_col].rank(ascending=sort_asc, method='min').astype(int)
+                            compare_results[meth] = temp_res['Rank']
+                        except Exception as e:
+                            st.warning(f"Could not calculate {meth} for comparison. Error: {e}")
+                    
+                    if compare_results:
+                        comp_df = pd.DataFrame(compare_results)
+                        
+                        st.markdown("### 🏆 Method Ranking Comparison")
+                        st.dataframe(comp_df, use_container_width=True)
+                        
+                        # Bump chart visualizing rank shifts
+                        comp_melted = comp_df.reset_index().melt(id_vars='Alternative', var_name='Method', value_name='Rank')
+                        
+                        chart = alt.Chart(comp_melted).mark_line(point=alt.OverlayMarkDef(filled=False, fill="white", size=100)).encode(
+                            x=alt.X('Method:N', title='MCDM Method', sort=compare_methods),
+                            y=alt.Y('Rank:O', title='Rank', sort='descending'),
+                            color=alt.Color('Alternative:N', legend=alt.Legend(title="Alternatives", orient='right')),
+                            tooltip=['Alternative', 'Method', 'Rank']
+                        ).properties(height=400, title="Alternative Ranking Shifts Across Methods").interactive()
+                        
+                        st.altair_chart(chart, use_container_width=True)
+
