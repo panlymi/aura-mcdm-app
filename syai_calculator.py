@@ -40,7 +40,10 @@ def calculate_syai(data: pd.DataFrame, weights: dict, directions: dict, beta: fl
             norm_df[col] = 1.0  # If all items are identical, they all perfectly match the ideal
             continue
             
-        if directions.get(col, 'maximize') == 'maximize':
+        if type(directions.get(col)) is dict and directions[col].get('type') == 'target':
+            # Goal criterion -> ideal point is the target value T
+            x_star = directions[col].get('value')
+        elif directions.get(col, 'maximize') == 'maximize':
             # Benefit criterion -> ideal point is the maximum
             x_star = max_val
         else:

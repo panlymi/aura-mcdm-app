@@ -91,17 +91,24 @@ if uploaded_file is not None:
     if mcdm_method != "Fuzzy ARAS" or weight_type == "Crisp (Normal)":
         num_criteria = len(criteria)
         default_val = 1.0 / num_criteria if num_criteria > 0 else 1.0
+        
+        # SYAI supports 'target' direction
+        direction_options = ["maximize", "minimize", "target"] if mcdm_method == "SYAI" else ["maximize", "minimize"]
+        
         weights_df_init = pd.DataFrame({
             "Criterion": criteria,
             "Weight": default_val,
-            "Direction": "maximize"
+            "Direction": "maximize",
+            "Target Value": 0.0
         })
+        
         edited_df = st.sidebar.data_editor(
             weights_df_init,
             column_config={
                 "Criterion": st.column_config.TextColumn("Criterion", disabled=True),
                 "Weight": st.column_config.NumberColumn("Weight", min_value=0.0, format=None, step=None), 
-                "Direction": st.column_config.SelectboxColumn("Direction", options=["maximize", "minimize"])
+                "Direction": st.column_config.SelectboxColumn("Direction", options=direction_options),
+                "Target Value": st.column_config.NumberColumn("Target Value (If 'target')", format=None, step=None)
             },
             hide_index=True,
             use_container_width=True
@@ -138,8 +145,15 @@ if uploaded_file is not None:
         if weights is None:
             st.stop()
             
-    # Always extract directions
-    directions = dict(zip(edited_df["Criterion"], edited_df["Direction"]))
+    # Assemble directions dict
+    directions = {}
+    for _, row in edited_df.iterrows():
+        crit = row["Criterion"]
+        direction_val = row["Direction"]
+        if direction_val == "target" and "Target Value" in row:
+            directions[crit] = {"type": "target", "value": row["Target Value"]}
+        else:
+            directions[crit] = direction_val
     
     submit_button = st.sidebar.button(f"Calculate {mcdm_method}", type="primary", use_container_width=True)
         
