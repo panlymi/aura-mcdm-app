@@ -239,8 +239,8 @@ if uploaded_file is not None:
             # Reset index to properly label the Alternatives
             chart_data = chart_data.reset_index()
             alt_col_name = chart_data.columns[0]
-            if alt_col_name == 'index':
-                chart_data.rename(columns={'index': 'Alternative'}, inplace=True)
+            if alt_col_name != 'Alternative':
+                chart_data.rename(columns={alt_col_name: 'Alternative'}, inplace=True)
                 alt_col_name = 'Alternative'
                 
             # Create explicit Altair chart to guarantee tooltips
