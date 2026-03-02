@@ -195,7 +195,7 @@ if uploaded_file is not None:
                 elif mcdm_method == "SYAI":
                     results_df, steps_dict = calculate_syai(matrix_to_calc, weights, directions, beta, return_steps=True)
                 else:
-                    results_df = calculate_fuzzy_aras(matrix_to_calc, weights, directions)
+                    results_df, steps_dict = calculate_fuzzy_aras(matrix_to_calc, weights, directions, return_steps=True)
             
             st.subheader(f"{mcdm_method} Results & Ranking")
             
@@ -383,6 +383,59 @@ if uploaded_file is not None:
                     with col2:
                         st.markdown("**Final Result and Ranking:**")
                         st.dataframe(steps_dict['Step 6: Final Result and Ranking'][['Rank', 'Closeness Score (D_i)']], use_container_width=True)
+            
+            # Show Detailed Steps for Fuzzy ARAS if method is Fuzzy ARAS
+            if mcdm_method == "Fuzzy ARAS":
+                st.subheader(f"Step-by-Step Fuzzy ARAS Calculations")
+                st.markdown("This section details the internal calculations along with their formulas so researchers can verify the results themselves.")
+                
+                with st.expander("Step 0: Fuzzy Weights", expanded=False):
+                    st.markdown("**Weights converted to Triangular Fuzzy Numbers:**")
+                    st.dataframe(steps_dict['Step 0: Fuzzy Weights'], use_container_width=True)
+
+                with st.expander("Step 1: Decision Matrix with Optimal TFN", expanded=False):
+                    st.markdown(r'''
+                    **Determining the Optimal Alternative ($x_0$):**
+                    - For Beneficial Criteria (Maximize): $x_{0j} = (\max_i l_{ij}, \max_i m_{ij}, \max_i u_{ij})$
+                    - For Non-Beneficial Criteria (Minimize): $x_{0j} = (\min_i l_{ij}, \min_i m_{ij}, \min_i u_{ij})$
+                    ''')
+                    st.dataframe(steps_dict['Step 1: Decision Matrix with Optimal TFN ($x_0$)'], use_container_width=True)
+
+                with st.expander("Step 2: Normalized Fuzzy Decision Matrix", expanded=False):
+                    st.markdown(r'''
+                    **Normalization Formulas:**
+                    - **Beneficial:** $\tilde{r}_{ij} = (\frac{l_{ij}}{\sum u_{ij}}, \frac{m_{ij}}{\sum m_{ij}}, \frac{u_{ij}}{\sum l_{ij}})$
+                    - **Non-Beneficial:** $\tilde{r}_{ij} = (\frac{1/u_{ij}}{\sum (1/l_{ij})}, \frac{1/m_{ij}}{\sum (1/m_{ij})}, \frac{1/l_{ij}}{\sum (1/u_{ij})})$
+                    ''')
+                    st.dataframe(steps_dict['Step 2: Normalized Fuzzy Decision Matrix'], use_container_width=True)
+
+                with st.expander("Step 3 & 4: Weighted Matrix and Fuzzy Optimality Function", expanded=False):
+                    st.markdown(r'''
+                    **Weighted Matrix:** $\tilde{v}_{ij} = \tilde{r}_{ij} \times \tilde{w}_j$
+                    **Fuzzy Optimality Function ($S_i$):** $\tilde{S}_i = \sum_{j} \tilde{v}_{ij}$
+                    ''')
+                    col1, col2 = st.columns([2, 1])
+                    with col1:
+                        st.markdown("**Weighted Normalized Matrix:**")
+                        st.dataframe(steps_dict['Step 3: Weighted Normalized Fuzzy Decision Matrix'], use_container_width=True)
+                    with col2:
+                        st.markdown("**Fuzzy $S_i$:**")
+                        st.dataframe(steps_dict['Step 4: Fuzzy Optimality Function ($S_i$)'], use_container_width=True)
+
+                with st.expander("Step 5 & 6: Defuzzification and Utility Degree", expanded=False):
+                    st.markdown(r'''
+                    **Defuzzification (Center of Area):** $S_i = \frac{l + m + u}{3}$
+                    **Utility Degree ($K_i$):** $K_i = \frac{S_i}{S_0}$
+                    *(where $S_0$ is the crisp optimality function of the optimal alternative)*
+                    ''')
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown("**Defuzzified $S_i$:**")
+                        st.dataframe(steps_dict['Step 5: Defuzzified Crisp $S_i$'], use_container_width=True)
+                        st.info(f"**Optimal $S_0$ (Crisp):** {steps_dict['Step 5: Optimal $S_0$ (Crisp)']:.4f}")
+                    with col2:
+                        st.markdown("**Final Result and Ranking:**")
+                        st.dataframe(steps_dict['Step 7: Final Result and Ranking'][['Rank', 'K_i (Utility Degree)', 'S_i (Crisp)']], use_container_width=True)
             
         except Exception as e:
             st.error(f"An error occurred during calculation: {e}")
