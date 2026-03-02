@@ -54,6 +54,16 @@ if uploaded_file is not None:
     
     # Validation & Parsing
     if mcdm_method != "Fuzzy ARAS":
+        # First, attempt to clean string columns that might be numbers with commas
+        for col in df.columns:
+            if df[col].dtype == object or df[col].dtype == str:
+                try:
+                    # Clean commas and convert to float
+                    df[col] = df[col].astype(str).str.replace(',', '', regex=False).astype(float)
+                except ValueError:
+                    # If it fails, it's a genuine string column (like Linguistic terms), we can ignore it
+                    pass
+                    
         numeric_df = df.select_dtypes(include=['number'])
         if numeric_df.empty:
             st.error("The uploaded file does not contain numeric data suitable for crisp MCDM.")
