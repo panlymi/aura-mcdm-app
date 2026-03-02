@@ -26,9 +26,11 @@ LINGUISTIC_MAPPING = {
 }
 
 def parse_tfn_string(val):
-    """Parses 'a, b, c' into a tuple (a, b, c)."""
+    """Parses 'a, b, c' or '(a, b, c)' into a tuple (a, b, c)."""
     try:
-        parts = [float(x.strip()) for x in str(val).split(',')]
+        # Strip common brackets and parenthesis that a user might intuitively type
+        clean_val = str(val).strip(' ()[]{}')
+        parts = [float(x.strip()) for x in clean_val.split(',')]
         if len(parts) == 3:
             return tuple(parts)
         elif len(parts) == 1:
