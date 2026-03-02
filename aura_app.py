@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import altair as alt
 from aura_calculator import calculate_aura
 from aras_calculator import calculate_aras
 from fuzzy_aras_calculator import calculate_fuzzy_aras
@@ -229,20 +230,28 @@ if uploaded_file is not None:
             top_score = display_df[score_col].iloc[0]
             st.success(f"🏆 **{top_alt}** is the best alternative with a score/degree of **{top_score}**.")
             
-            # Bar chart of scores
+            # Bar chart of scores using Altair for exact tooltip control
             st.subheader(f"{mcdm_method} Scores Visualization")
             chart_data = results_df[[score_col]].copy()
             # Sort by appropriate ascending order for the chart
             chart_data = chart_data.sort_values(by=score_col, ascending=sort_ascending)
             
-            # Reset index to properly label the Alternatives on hover for large matrices
+            # Reset index to properly label the Alternatives
             chart_data = chart_data.reset_index()
             alt_col_name = chart_data.columns[0]
             if alt_col_name == 'index':
                 chart_data.rename(columns={'index': 'Alternative'}, inplace=True)
                 alt_col_name = 'Alternative'
                 
-            st.bar_chart(chart_data, x=alt_col_name, y=score_col)
+            # Create explicit Altair chart to guarantee tooltips
+            chart = alt.Chart(chart_data).mark_bar().encode(
+                x=alt.X(f"{alt_col_name}:N", sort=None, title="Alternative"),
+                y=alt.Y(f"{score_col}:Q", title=score_col),
+                tooltip=[alt.Tooltip(f"{alt_col_name}:N", title="Alternative"), 
+                         alt.Tooltip(f"{score_col}:Q", title="Score", format=".4f")]
+            ).properties(height=400)
+            
+            st.altair_chart(chart, use_container_width=True)
             
         except Exception as e:
             st.error(f"An error occurred during calculation: {e}")
