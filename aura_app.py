@@ -5,6 +5,7 @@ from aura_calculator import calculate_aura
 from aras_calculator import calculate_aras
 from fuzzy_aras_calculator import calculate_fuzzy_aras
 from syai_calculator import calculate_syai
+from arie_calculator import calculate_arie
 from fuzzy_parser import parse_fuzzy_matrix, parse_fuzzy_weights
 
 st.set_page_config(page_title="MCDM Calculator", layout="wide")
@@ -16,6 +17,7 @@ This application implements three Multi-Criteria Decision Making (MCDM) methods:
 2. **Additive Ratio Assessment (ARAS)**
 3. **Fuzzy Additive Ratio Assessment (Fuzzy ARAS)**
 4. **Simplified Yielded Aggregation Index (SYAI)**
+5. **Adaptive Ranking with Ideal Evaluation (ARIE)**
 
 Upload your decision matrix as an Excel or CSV file. The file should have alternatives as rows and criteria as columns.
 The first column should contain the names of the alternatives.
@@ -24,7 +26,7 @@ The first column should contain the names of the alternatives.
 st.sidebar.header("Configuration")
 
 # MCDM Method Selection
-mcdm_method = st.sidebar.selectbox("Select MCDM Method", ["AURA", "ARAS", "Fuzzy ARAS", "SYAI"])
+mcdm_method = st.sidebar.selectbox("Select MCDM Method", ["AURA", "ARAS", "Fuzzy ARAS", "SYAI", "ARIE"])
 
 weight_type = None
 fuzzy_matrix_format = None
@@ -86,6 +88,18 @@ if uploaded_file is not None:
             min_value=0.0, max_value=1.0, value=0.5, step=0.05,
             help="Controls preference: >0.5 emphasizes closeness to the ideal solution; <0.5 emphasizes avoiding the anti-ideal solution."
         )
+    elif mcdm_method == "ARIE":
+        st.sidebar.subheader("ARIE Parameters")
+        gamma = st.sidebar.slider(
+            "Sensitivity Parameter (γ)",
+            min_value=0.1, max_value=5.0, value=1.0, step=0.1,
+            help="Controls how sharply deviations from benchmarks are penalized. γ=1 is linear, γ>1 is risk-averse, γ<1 is risk-seeking."
+        )
+        kappa = st.sidebar.slider(
+            "Balancing Parameter (κ)",
+            min_value=0.0, max_value=1.0, value=0.5, step=0.05,
+            help="Trades-off importance between being close to ideal (κ > 0.5) and far from worst (κ < 0.5)."
+        )
     
     st.sidebar.subheader("Criteria Weights & Directions")
     
@@ -116,8 +130,8 @@ if uploaded_file is not None:
         if len(parsed_weights) == num_criteria:
             weight_init_values = parsed_weights
 
-        # SYAI supports 'target' direction
-        direction_options = ["maximize", "minimize", "target"] if mcdm_method == "SYAI" else ["maximize", "minimize"]
+        # SYAI and ARIE support 'target' direction
+        direction_options = ["maximize", "minimize", "target"] if mcdm_method in ["SYAI", "ARIE"] else ["maximize", "minimize"]
         
         weights_df_init = pd.DataFrame({
             "Criterion": criteria,
@@ -252,6 +266,8 @@ if uploaded_file is not None:
                     results_df = calculate_aras(matrix_to_calc, weights, directions)
                 elif mcdm_method == "SYAI":
                     results_df, steps_dict = calculate_syai(matrix_to_calc, weights, directions, beta, return_steps=True)
+                elif mcdm_method == "ARIE":
+                    results_df, steps_dict = calculate_arie(matrix_to_calc, weights, directions, gamma, kappa, return_steps=True)
                 else:
                     results_df, steps_dict = calculate_fuzzy_aras(matrix_to_calc, weights, directions, return_steps=True)
             
@@ -273,6 +289,10 @@ if uploaded_file is not None:
                 cols_to_format = ['D+ (Dist to Ideal)', 'D- (Dist to Anti-Ideal)', 'Closeness Score (D_i)']
                 score_col = 'Closeness Score (D_i)'
                 sort_ascending = False # SYAI: Highest score is best
+            elif mcdm_method == "ARIE":
+                cols_to_format = ['Sim_best', 'Sim_worst', 'Relative Closeness (RC_i)']
+                score_col = 'Relative Closeness (RC_i)'
+                sort_ascending = False # ARIE: Highest score is best
             else:
                 cols_to_format = ['S_i (Crisp)', 'K_i (Utility Degree)']
                 score_col = 'K_i (Utility Degree)'
@@ -441,6 +461,64 @@ if uploaded_file is not None:
                     with col2:
                         st.markdown("**Final Result and Ranking:**")
                         st.dataframe(steps_dict['Step 6: Final Result and Ranking'][['Rank', 'Closeness Score (D_i)']], use_container_width=True)
+            
+            # Show Detailed Steps for ARIE if method is ARIE
+            if mcdm_method == "ARIE":
+                st.subheader(f"Step-by-Step ARIE Calculations")
+                st.markdown("This section details the internal calculations along with their formulas so researchers can verify the results themselves.")
+                
+                with st.expander("Step 1: Decision Matrix", expanded=False):
+                    st.markdown("Original Decision Matrix $X = [x_{ij}]$")
+                    st.dataframe(steps_dict['Step 1: Decision Matrix'], use_container_width=True)
+
+                with st.expander("Step 2: Normalized Decision Matrix", expanded=False):
+                    st.markdown(r'''
+                    **Normalization Formulas:**
+                    - **Max-type (Benefit):** $r_{ij} = \frac{x_{ij}}{x_j^{max}}$
+                    - **Min-type (Cost):** $r_{ij} = \frac{x_j^{min}}{x_{ij}}$
+                    - **Target-type (Goal):** $r_{ij} = 1 - \frac{|x_{ij} - x_j^T|}{\max(|x_j^{max} - x_j^T|, |x_j^{min} - x_j^T|)}$
+                    ''')
+                    st.dataframe(steps_dict['Step 2: Normalized Decision Matrix'], use_container_width=True)
+
+                with st.expander("Step 3: Weighted Normalized Decision Matrix", expanded=False):
+                    st.markdown(r'''
+                    **Formula:** $v_{ij} = w_j \cdot r_{ij}$
+                    
+                    *(where $w_j$ is the normalized weight for criterion $j$)*
+                    ''')
+                    st.dataframe(steps_dict['Step 3: Weighted Normalized Matrix'], use_container_width=True)
+
+                with st.expander("Step 4: Compute Similarity to Ideal and Anti-Ideal Solutions", expanded=False):
+                    st.markdown(r'''
+                    **1. Ideal and Anti-Ideal Solutions:**
+                    - **Ideal Solution:** $v_j^{max} = \max_i v_{ij}$
+                    - **Anti-Ideal Solution:** $v_j^{min} = \min_i v_{ij}$
+                    ''')
+                    st.dataframe(steps_dict['Step 4a: Ideal and Anti-Ideal Solutions'], use_container_width=True)
+                    
+                    st.markdown(r'''
+                    **2. Similarity Computation:**
+                    - **Similarity to Ideal ($Sim_i^{best}$):** $Sim_i^{best} = \sum_{j=1}^n \left( \frac{v_{ij}}{v_j^{max}} \right)^\gamma$
+                    - **Similarity to Anti-Ideal ($Sim_i^{worst}$):** $Sim_i^{worst} = \sum_{j=1}^n \left( \frac{v_j^{min}}{v_{ij}} \right)^\gamma$
+                    
+                    *(where $\gamma$ is the sensitivity parameter)*
+                    ''')
+                    st.dataframe(steps_dict['Step 4b: Similarity Computations'], use_container_width=True)
+
+                with st.expander("Step 5: Compute Relative Closeness & Ranking", expanded=False):
+                    st.markdown(r'''
+                    **Formula:**
+                    $$RC_i = \frac{\kappa \cdot Sim_i^{best}}{\kappa \cdot Sim_i^{best} + (1 - \kappa) \cdot Sim_i^{worst}}$$
+                    
+                    *(where $\kappa$ is the balancing parameter. Higher $RC_i$ score implies better rank)*
+                    ''')
+                    col1, col2 = st.columns([2, 1])
+                    with col1:
+                        st.markdown("**Relative Closeness Scores:**")
+                        st.dataframe(steps_dict['Step 5: Final Result and Ranking'][['Sim_best', 'Sim_worst', 'Relative Closeness (RC_i)']], use_container_width=True)
+                    with col2:
+                        st.markdown("**Final Result and Ranking:**")
+                        st.dataframe(steps_dict['Step 5: Final Result and Ranking'][['Rank', 'Relative Closeness (RC_i)']], use_container_width=True)
             
             # Show Detailed Steps for Fuzzy ARAS if method is Fuzzy ARAS
             if mcdm_method == "Fuzzy ARAS":
