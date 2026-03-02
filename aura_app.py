@@ -94,12 +94,34 @@ if uploaded_file is not None:
         num_criteria = len(criteria)
         default_val = 1.0 / num_criteria if num_criteria > 0 else 1.0
         
+        with st.sidebar.expander("💡 Bulk Quick-Fill Weights"):
+            st.markdown("Paste all weights separated by commas, spaces, or tabs.")
+            bulk_weights_input = st.text_area("Bulk Weights", key="bulk_weights", label_visibility="collapsed", help="e.g. 0.2, 0.3, 0.1, 0.4")
+            parsed_weights = []
+            if bulk_weights_input:
+                import re
+                try:
+                    # Parse numbers handling various spacing and commas
+                    parsed_weights = [float(x) for x in re.split(r'[,\s]+', bulk_weights_input.strip()) if x]
+                    if len(parsed_weights) == num_criteria:
+                        st.success("Weights applied!")
+                    else:
+                        st.warning(f"Expected {num_criteria} weights, found {len(parsed_weights)}.")
+                        parsed_weights = []
+                except ValueError:
+                    st.error("Invalid numbers detected. Please use format like: 0.2, 0.3, 0.1")
+                    parsed_weights = []
+
+        weight_init_values = [default_val] * num_criteria
+        if len(parsed_weights) == num_criteria:
+            weight_init_values = parsed_weights
+
         # SYAI supports 'target' direction
         direction_options = ["maximize", "minimize", "target"] if mcdm_method == "SYAI" else ["maximize", "minimize"]
         
         weights_df_init = pd.DataFrame({
             "Criterion": criteria,
-            "Weight": default_val,
+            "Weight": weight_init_values,
             "Direction": "maximize",
             "Target Value": 0.0
         })
@@ -117,17 +139,41 @@ if uploaded_file is not None:
         )
         weights = dict(zip(edited_df["Criterion"], edited_df["Weight"]))
     else:
+        num_criteria = len(criteria)
         # Fuzzy ARAS Weights Config
         if fuzzy_weight_format == "Linguistic Terms":
             default_weight = "Good"
             st.sidebar.markdown("**Valid terms:** Poor, Fair, Good, Very Good (or P, F, G, VG)")
+            help_text = "e.g. G, VG, F, P"
         else:
             default_weight = "1, 2, 3"
             st.sidebar.markdown("**Format:** `l, m, u` (e.g., `1, 2, 3`)")
+            help_text = "e.g. 1 2 3; 4 5 6; 7 8 9 (Use semicolons to separate criteria)"
+            
+        with st.sidebar.expander("💡 Bulk Quick-Fill Weights"):
+            st.markdown("Paste all weights separated by commas (for linguistic) or semicolons (for TFNs).")
+            bulk_fuzzy_input = st.text_area("Bulk Fuzzy Weights", key="bulk_fuzzy_weights", label_visibility="collapsed", help=help_text)
+            parsed_fuzzy = []
+            if bulk_fuzzy_input:
+                import re
+                if fuzzy_weight_format == "Linguistic Terms":
+                    parsed_fuzzy = [x.strip() for x in re.split(r'[,\s]+', bulk_fuzzy_input.strip()) if x.strip()]
+                else:
+                    parsed_fuzzy = [x.strip() for x in bulk_fuzzy_input.split(";") if x.strip()]
+                
+                if len(parsed_fuzzy) == num_criteria:
+                    st.success("Weights applied!")
+                else:
+                    st.warning(f"Expected {num_criteria} weights, found {len(parsed_fuzzy)}.")
+                    parsed_fuzzy = []
+                    
+        weight_init_values = [default_weight] * num_criteria
+        if len(parsed_fuzzy) == num_criteria:
+            weight_init_values = parsed_fuzzy
             
         weights_df_init = pd.DataFrame({
             "Criterion": criteria,
-            "Fuzzy Weight": default_weight,
+            "Fuzzy Weight": weight_init_values,
             "Direction": "maximize"
         })
         
@@ -162,16 +208,22 @@ if uploaded_file is not None:
     @st.dialog("Weightage Verification")
     def confirm_weight_warning(t_weight):
         st.warning(f"The total weightage is **{t_weight:g}**, which is not exactly equal to 1.")
-        st.write("Do you want to proceed with the calculation anyway, or go back to adjust the weightage?")
-        col1, col2 = st.columns(2)
-        if col1.button("Proceed anyway", type="primary", use_container_width=True):
+        st.write("Do you want to proceed anyway, normalize the weights to 1, or go back?")
+        col1, col2, col3 = st.columns(3)
+        if col1.button("Proceed anyway", use_container_width=True):
             st.session_state.force_calculate = True
             st.rerun()
-        if col2.button("Go back", use_container_width=True):
+        if col2.button("Normalize & Proceed", type="primary", use_container_width=True):
+            st.session_state.normalize_weights = True
+            st.session_state.force_calculate = True
+            st.rerun()
+        if col3.button("Go back", use_container_width=True):
             st.rerun()
 
     if "force_calculate" not in st.session_state:
         st.session_state.force_calculate = False
+    if "normalize_weights" not in st.session_state:
+        st.session_state.normalize_weights = False
 
     # Calculate weight validation only for non-fuzzy methods or crisp weights
     requires_validation = mcdm_method != "Fuzzy ARAS" or weight_type == "Crisp (Normal)"
@@ -180,12 +232,18 @@ if uploaded_file is not None:
 
     if submit_button:
         if requires_validation and abs(total_weight - 1.0) > 1e-6:
-            confirm_weight_warning(total_weight)
+            if total_weight == 0:
+                st.error("Total weight is 0. Please enter valid weights.")
+            else:
+                confirm_weight_warning(total_weight)
         else:
             st.session_state.force_calculate = True
             
     if st.session_state.force_calculate:
         st.session_state.force_calculate = False
+        if getattr(st.session_state, "normalize_weights", False) and requires_validation and total_weight != 0:
+            st.session_state.normalize_weights = False
+            weights = {k: v / total_weight for k, v in weights.items()}
         try:
             with st.spinner(f"Calculating {mcdm_method}..."):
                 if mcdm_method == "AURA":
