@@ -3,6 +3,7 @@ import pandas as pd
 from aura_calculator import calculate_aura
 from aras_calculator import calculate_aras
 from fuzzy_aras_calculator import calculate_fuzzy_aras
+from syai_calculator import calculate_syai
 from fuzzy_parser import parse_fuzzy_matrix, parse_fuzzy_weights
 
 st.set_page_config(page_title="MCDM Calculator", layout="wide")
@@ -13,6 +14,7 @@ This application implements three Multi-Criteria Decision Making (MCDM) methods:
 1. **Adaptive Utility Ranking Algorithm (AURA)**
 2. **Additive Ratio Assessment (ARAS)**
 3. **Fuzzy Additive Ratio Assessment (Fuzzy ARAS)**
+4. **Simplified Yielded Aggregation Index (SYAI)**
 
 Upload your decision matrix as an Excel or CSV file. The file should have alternatives as rows and criteria as columns.
 The first column should contain the names of the alternatives.
@@ -21,7 +23,7 @@ The first column should contain the names of the alternatives.
 st.sidebar.header("Configuration")
 
 # MCDM Method Selection
-mcdm_method = st.sidebar.selectbox("Select MCDM Method", ["AURA", "ARAS", "Fuzzy ARAS"])
+mcdm_method = st.sidebar.selectbox("Select MCDM Method", ["AURA", "ARAS", "Fuzzy ARAS", "SYAI"])
 
 weight_type = None
 fuzzy_matrix_format = None
@@ -75,14 +77,23 @@ if uploaded_file is not None:
             index=1,
             help="1 = Manhattan Distance, 2 = Euclidean Distance"
         )
+    elif mcdm_method == "SYAI":
+        st.sidebar.subheader("SYAI Parameters")
+        beta = st.sidebar.slider(
+            "Closeness Parameter (β)",
+            min_value=0.0, max_value=1.0, value=0.5, step=0.05,
+            help="Controls preference: >0.5 emphasizes closeness to the ideal solution; <0.5 emphasizes avoiding the anti-ideal solution."
+        )
     
     st.sidebar.subheader("Criteria Weights & Directions")
     
     # Initialize dataframe for data editor based on method
     if mcdm_method != "Fuzzy ARAS" or weight_type == "Crisp (Normal)":
+        num_criteria = len(criteria)
+        default_val = 1.0 / num_criteria if num_criteria > 0 else 1.0
         weights_df_init = pd.DataFrame({
             "Criterion": criteria,
-            "Weight": 1.0,
+            "Weight": default_val,
             "Direction": "maximize"
         })
         edited_df = st.sidebar.data_editor(
@@ -165,6 +176,8 @@ if uploaded_file is not None:
                     results_df = calculate_aura(matrix_to_calc, weights, directions, alpha, p_metric)
                 elif mcdm_method == "ARAS":
                     results_df = calculate_aras(matrix_to_calc, weights, directions)
+                elif mcdm_method == "SYAI":
+                    results_df = calculate_syai(matrix_to_calc, weights, directions, beta)
                 else:
                     results_df = calculate_fuzzy_aras(matrix_to_calc, weights, directions)
             
@@ -182,6 +195,10 @@ if uploaded_file is not None:
                 cols_to_format = ['S (Optimality)', 'K (Utility Degree)']
                 score_col = 'K (Utility Degree)'
                 sort_ascending = False # ARAS: Highest degree is best
+            elif mcdm_method == "SYAI":
+                cols_to_format = ['D+ (Dist to Ideal)', 'D- (Dist to Anti-Ideal)', 'Closeness Score (D_i)']
+                score_col = 'Closeness Score (D_i)'
+                sort_ascending = False # SYAI: Highest score is best
             else:
                 cols_to_format = ['S_i (Crisp)', 'K_i (Utility Degree)']
                 score_col = 'K_i (Utility Degree)'
