@@ -188,7 +188,7 @@ if uploaded_file is not None:
         try:
             with st.spinner(f"Calculating {mcdm_method}..."):
                 if mcdm_method == "AURA":
-                    results_df = calculate_aura(matrix_to_calc, weights, directions, alpha, p_metric)
+                    results_df, steps_dict = calculate_aura(matrix_to_calc, weights, directions, alpha, p_metric, return_steps=True)
                 elif mcdm_method == "ARAS":
                     results_df = calculate_aras(matrix_to_calc, weights, directions)
                 elif mcdm_method == "SYAI":
@@ -252,6 +252,75 @@ if uploaded_file is not None:
             ).properties(height=400)
             
             st.altair_chart(chart, use_container_width=True)
+            
+            # Show Detailed Steps for AURA if method is AURA
+            if mcdm_method == "AURA":
+                st.subheader(f"Step-by-Step AURA Calculations")
+                st.markdown("This section details the internal calculations along with their formulas so researchers can verify the results themselves.")
+                
+                with st.expander("Step 1: Normalized Decision Matrix", expanded=False):
+                    st.markdown(r'''
+                    **Formula:**
+                    - For Beneficial Criteria (Maximize): $r_{ij} = \frac{x_{ij} - \min(x_{ij})}{\max(x_{ij}) - \min(x_{ij})}$
+                    - For Non-Beneficial Criteria (Minimize): $r_{ij} = \frac{\max(x_{ij}) - x_{ij}}{\max(x_{ij}) - \min(x_{ij})}$
+                    ''')
+                    st.dataframe(steps_dict['Step 1: Normalized Decision Matrix'], use_container_width=True)
+
+                with st.expander("Step 2: Weighted Normalized Matrix", expanded=False):
+                    st.markdown(r'''
+                    **Formula:** $v_{ij} = r_{ij} \times w_j$
+                    
+                    *(where $w_j$ is the weight for criterion $j$)*
+                    ''')
+                    st.dataframe(steps_dict['Step 2: Weighted Normalized Matrix'], use_container_width=True)
+
+                with st.expander("Step 3: Ideal Solutions", expanded=False):
+                    st.markdown(r'''
+                    **Formulas:**
+                    - **PIS (Positive Ideal Solution):** maximum value in each column of $v_{ij}$
+                    - **NIS (Negative Ideal Solution):** minimum value in each column of $v_{ij}$
+                    - **AS (Average Solution):** average value in each column of $v_{ij}$
+                    ''')
+                    pis_df = pd.DataFrame([steps_dict['Step 3: Ideal Solutions']['PIS (Positive Ideal Solution)']], index=['PIS'])
+                    nis_df = pd.DataFrame([steps_dict['Step 3: Ideal Solutions']['NIS (Negative Ideal Solution)']], index=['NIS'])
+                    as_df = pd.DataFrame([steps_dict['Step 3: Ideal Solutions']['AS (Average Solution)']], index=['AS'])
+                    st.dataframe(pd.concat([pis_df, nis_df, as_df]), use_container_width=True)
+
+                with st.expander("Step 4: Distance Calculations", expanded=False):
+                    st.markdown(r'''
+                    **Raw Distances:**
+                    Calculate distance to PIS ($d^+$), NIS ($d^-$) and AS ($d_{avg}$). Let $c_j$ refer to the solution to compare against.
+                    ''')
+                    st.markdown(rf"- If $p=1$ (Manhattan): $d_i = \sum_j |v_{{ij}} - c_j|$")
+                    st.markdown(rf"- If $p=2$ (Euclidean): $d_i = \sqrt{{\sum_j (v_{{ij}} - c_j)^2}}$")
+                    
+                    st.markdown("**1. Raw Distances:**")
+                    st.dataframe(steps_dict['Step 4a: Raw Distances'], use_container_width=True)
+                    
+                    st.markdown(r'''
+                    **2. Corrected Distances:**
+                    To handle extreme values, AURA introduces a correction penalty factor:
+                    $D_i = d_i + \sigma d_i^2$, where $\sigma = \max(d) - \min(d)$
+                    ''')
+                    st.markdown(r"**Correction Factors ($\sigma$):**")
+                    st.json(steps_dict['Step 4b: Correction Factors'])
+                    st.markdown("**Corrected Distances ($D^+, D^-, D_{avg}$):**")
+                    st.dataframe(steps_dict['Step 4b: Corrected Distances'], use_container_width=True)
+
+                with st.expander("Step 5: Final Utility Score & Ranking", expanded=False):
+                    st.markdown(r'''
+                    **Formula:**
+                    $$U_i = \frac{\alpha (D^+_i - D^-_i) + (1 - \alpha) D^{avg}_i}{2}$$
+                    
+                    *(where $\alpha$ is the balance parameter)*
+                    ''')
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown("**Final Utility Scores:**")
+                        st.dataframe(steps_dict['Step 5: Final Utility Score'], use_container_width=True)
+                    with col2:
+                        st.markdown("**Final Result and Ranking:**")
+                        st.dataframe(steps_dict['Step 6: Final Result and Ranking'][['Rank', 'Utility Score']], use_container_width=True)
             
         except Exception as e:
             st.error(f"An error occurred during calculation: {e}")
