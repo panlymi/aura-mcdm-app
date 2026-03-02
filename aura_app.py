@@ -234,7 +234,15 @@ if uploaded_file is not None:
             chart_data = results_df[[score_col]].copy()
             # Sort by appropriate ascending order for the chart
             chart_data = chart_data.sort_values(by=score_col, ascending=sort_ascending)
-            st.bar_chart(chart_data)
+            
+            # Reset index to properly label the Alternatives on hover for large matrices
+            chart_data = chart_data.reset_index()
+            alt_col_name = chart_data.columns[0]
+            if alt_col_name == 'index':
+                chart_data.rename(columns={'index': 'Alternative'}, inplace=True)
+                alt_col_name = 'Alternative'
+                
+            st.bar_chart(chart_data, x=alt_col_name, y=score_col)
             
         except Exception as e:
             st.error(f"An error occurred during calculation: {e}")
