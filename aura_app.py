@@ -911,7 +911,10 @@ else:
                         st.dataframe(comp_df, use_container_width=True)
                         
                         # Bump chart visualizing rank shifts
-                        comp_melted = comp_df.reset_index().melt(id_vars='Alternative', var_name='Method', value_name='Rank')
+                        comp_df_reset = comp_df.reset_index()
+                        if comp_df_reset.columns[0] != 'Alternative':
+                            comp_df_reset.rename(columns={comp_df_reset.columns[0]: 'Alternative'}, inplace=True)
+                        comp_melted = comp_df_reset.melt(id_vars='Alternative', var_name='Method', value_name='Rank')
                         
                         chart = alt.Chart(comp_melted).mark_line(point=alt.OverlayMarkDef(filled=False, fill="white", size=100)).encode(
                             x=alt.X('Method:N', title='MCDM Method', sort=compare_methods),
