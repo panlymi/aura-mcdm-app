@@ -23,8 +23,15 @@ st.sidebar.header("Configuration")
 # MCDM Method Selection
 mcdm_method = st.sidebar.selectbox("Select MCDM Method", ["AURA", "ARAS", "Fuzzy ARAS"])
 
+weight_type = None
+fuzzy_matrix_format = None
 if mcdm_method == "Fuzzy ARAS":
-    fuzzy_input_format = st.sidebar.radio("Fuzzy Input Format", ["Linguistic Terms", "Comma-Separated TFNs"])
+    fuzzy_matrix_format = st.sidebar.radio("Matrix Values Format", ["Linguistic Terms", "Comma-Separated TFNs"])
+    weight_type = st.sidebar.radio("Criteria Weights Type", ["Crisp (Normal)", "Fuzzy"])
+    if weight_type == "Fuzzy":
+        fuzzy_weight_format = st.sidebar.radio("Fuzzy Weight Format", ["Linguistic Terms", "Comma-Separated TFNs"])
+    else:
+        fuzzy_weight_format = "Crisp"
 
 # File uploader
 uploaded_file = st.sidebar.file_uploader("Upload Decision Matrix", type=["xlsx", "csv"])
@@ -49,7 +56,7 @@ if uploaded_file is not None:
         matrix_to_calc = numeric_df
     else:
         criteria = df.columns.tolist()
-        parsed_df = parse_fuzzy_matrix(df, fuzzy_input_format)
+        parsed_df = parse_fuzzy_matrix(df, fuzzy_matrix_format)
         if parsed_df is None:
             st.stop() # Parsing error displayed inside parser
         matrix_to_calc = parsed_df
@@ -72,7 +79,7 @@ if uploaded_file is not None:
     st.sidebar.subheader("Criteria Weights & Directions")
     
     # Initialize dataframe for data editor based on method
-    if mcdm_method != "Fuzzy ARAS":
+    if mcdm_method != "Fuzzy ARAS" or weight_type == "Crisp (Normal)":
         weights_df_init = pd.DataFrame({
             "Criterion": criteria,
             "Weight": 1.0,
@@ -91,7 +98,7 @@ if uploaded_file is not None:
         weights = dict(zip(edited_df["Criterion"], edited_df["Weight"]))
     else:
         # Fuzzy ARAS Weights Config
-        if fuzzy_input_format == "Linguistic Terms":
+        if fuzzy_weight_format == "Linguistic Terms":
             default_weight = "Good"
             st.sidebar.markdown("**Valid terms:** Poor, Fair, Good, Very Good (or P, F, G, VG)")
         else:
@@ -116,7 +123,7 @@ if uploaded_file is not None:
         )
         
         raw_weights = dict(zip(edited_df["Criterion"], edited_df["Fuzzy Weight"]))
-        weights = parse_fuzzy_weights(raw_weights, fuzzy_input_format)
+        weights = parse_fuzzy_weights(raw_weights, fuzzy_weight_format)
         if weights is None:
             st.stop()
             
@@ -139,8 +146,8 @@ if uploaded_file is not None:
     if "force_calculate" not in st.session_state:
         st.session_state.force_calculate = False
 
-    # Calculate weight validation only for non-fuzzy methods
-    requires_validation = mcdm_method != "Fuzzy ARAS"
+    # Calculate weight validation only for non-fuzzy methods or crisp weights
+    requires_validation = mcdm_method != "Fuzzy ARAS" or weight_type == "Crisp (Normal)"
     if requires_validation:
         total_weight = sum(weights.values())
 
