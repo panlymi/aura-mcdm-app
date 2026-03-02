@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-def calculate_syai(data: pd.DataFrame, weights: dict, directions: dict, beta: float = 0.5):
+def calculate_syai(data: pd.DataFrame, weights: dict, directions: dict, beta: float = 0.5, return_steps: bool = False):
     """
     Computes the Simplified Yielded Aggregation Index (SYAI) MCDM method.
     
@@ -10,13 +10,16 @@ def calculate_syai(data: pd.DataFrame, weights: dict, directions: dict, beta: fl
         weights (dict): A dictionary of criteria weights (default sum to 1).
         directions (dict): 'maximize' or 'minimize' for each criterion.
         beta (float): Tunable parameter for closeness score. Default is 0.5.
+        return_steps (bool): Whether to return a dictionary of intermediate calculation steps.
         
     Returns:
-        pd.DataFrame: A dataframe containing SYAI calculation steps and final ranking.
+        pd.DataFrame or tuple: A dataframe containing SYAI calculation steps and final ranking.
+                               If return_steps=True, returns (results_df, steps_dict).
     """
     # Create copies
     df = data.copy()
     columns = df.columns
+    steps = {}
     
     # Validation: Ensure weights sum to 1.0 (handled in app.py typically, but good practice here)
     total_weight = sum(weights.values())
@@ -53,15 +56,24 @@ def calculate_syai(data: pd.DataFrame, weights: dict, directions: dict, beta: fl
         # N_ij = C + (1 - C) * (1 - (|x_ij - x^*| / R))
         norm_col = C + (1 - C) * (1 - (np.abs(col_data - x_star) / r_val))
         norm_df[col] = norm_col
+
+    steps['Step 1: Normalized Decision Matrix'] = norm_df.copy()
         
     # 2. Calculate Weighted Normalized Matrix
     weighted_df = pd.DataFrame(index=df.index, columns=columns)
     for col in columns:
         weighted_df[col] = norm_df[col] * w_norm[col]
+
+    steps['Step 2: Weighted Normalized Matrix'] = weighted_df.copy()
         
     # 3. Determine Yielded-Ideal (A+) and Anti-Ideal (A-) Solutions
     A_plus = weighted_df.max()
     A_minus = weighted_df.min()
+
+    steps['Step 3: Ideal Solutions'] = {
+        'A+ (Yielded-Ideal Solution)': A_plus,
+        'A- (Anti-Ideal Solution)': A_minus
+    }
     
     # 4. Compute Distances and Closeness Score
     D_plus = pd.Series(index=df.index, dtype=float)
@@ -73,6 +85,11 @@ def calculate_syai(data: pd.DataFrame, weights: dict, directions: dict, beta: fl
         D_plus[idx] = np.sum(np.abs(row - A_plus))
         # D- = sum(|v_ij - A-_j|)
         D_minus[idx] = np.sum(np.abs(row - A_minus))
+
+    steps['Step 4: Distances to Ideal Solutions'] = pd.DataFrame({
+        'D+ (Sum of abs dist to A+)': D_plus,
+        'D- (Sum of abs dist to A-)': D_minus
+    })
         
     # Closeness Score (D_i) = ((1 - beta) * D-) / (beta * D+ + (1 - beta) * D-)
     # With a guard for divide by zero if both D+ and D- are exactly 0 (occurs if 1 row)
@@ -84,6 +101,8 @@ def calculate_syai(data: pd.DataFrame, weights: dict, directions: dict, beta: fl
             D_score[idx] = 1.0 # If distance to both ideal and anti-ideal is 0, it is the only alternative
         else:
             D_score[idx] = numerator / denominator
+
+    steps['Step 5: Final Closeness Score'] = D_score.to_frame(name='Closeness Score (D_i)')
             
     # 5. Rank the alternatives
     rank = D_score.rank(ascending=False, method='min').astype(int)
@@ -95,4 +114,9 @@ def calculate_syai(data: pd.DataFrame, weights: dict, directions: dict, beta: fl
     results['Closeness Score (D_i)'] = D_score
     results['Rank'] = rank
     
-    return results.sort_values(by='Rank')
+    results_sorted = results.sort_values(by='Rank')
+    steps['Step 6: Final Result and Ranking'] = results_sorted.copy()
+    
+    if return_steps:
+        return results_sorted, steps
+    return results_sorted

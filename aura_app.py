@@ -193,7 +193,7 @@ if uploaded_file is not None:
                 elif mcdm_method == "ARAS":
                     results_df = calculate_aras(matrix_to_calc, weights, directions)
                 elif mcdm_method == "SYAI":
-                    results_df = calculate_syai(matrix_to_calc, weights, directions, beta)
+                    results_df, steps_dict = calculate_syai(matrix_to_calc, weights, directions, beta, return_steps=True)
                 else:
                     results_df = calculate_fuzzy_aras(matrix_to_calc, weights, directions)
             
@@ -322,6 +322,67 @@ if uploaded_file is not None:
                     with col2:
                         st.markdown("**Final Result and Ranking:**")
                         st.dataframe(steps_dict['Step 6: Final Result and Ranking'][['Rank', 'Utility Score']], use_container_width=True)
+            
+            # Show Detailed Steps for SYAI if method is SYAI
+            if mcdm_method == "SYAI":
+                st.subheader(f"Step-by-Step SYAI Calculations")
+                st.markdown("This section details the internal calculations along with their formulas so researchers can verify the results themselves.")
+                
+                with st.expander("Step 1: Normalized Decision Matrix", expanded=False):
+                    st.markdown(r'''
+                    **Formula:**
+                    $N_{ij} = C + (1 - C) \times \left(1 - \frac{|x_{ij} - x^*|}{R_j}\right)$
+                    
+                    **Where:**
+                    - $C = 0.01$ (Fixed constant)
+                    - $R_j = \max(x_j) - \min(x_j)$ (Range of criterion $j$)
+                    - $x^*$ is the ideal point:
+                        - $\max(x_j)$ for beneficial criteria (maximize)
+                        - $\min(x_j)$ for non-beneficial criteria (minimize)
+                        - Target value $T$ for goal criteria
+                    ''')
+                    st.dataframe(steps_dict['Step 1: Normalized Decision Matrix'], use_container_width=True)
+
+                with st.expander("Step 2: Weighted Normalized Matrix", expanded=False):
+                    st.markdown(r'''
+                    **Formula:** $v_{ij} = N_{ij} \times w_j$
+                    
+                    *(where $w_j$ is the normalized weight for criterion $j$)*
+                    ''')
+                    st.dataframe(steps_dict['Step 2: Weighted Normalized Matrix'], use_container_width=True)
+
+                with st.expander("Step 3: Ideal Solutions", expanded=False):
+                    st.markdown(r'''
+                    **Formulas:**
+                    - **$A^+$ (Yielded-Ideal Solution):** maximum value in each column of $v_{ij}$
+                    - **$A^-$ (Anti-Ideal Solution):** minimum value in each column of $v_{ij}$
+                    ''')
+                    a_plus_df = pd.DataFrame([steps_dict['Step 3: Ideal Solutions']['A+ (Yielded-Ideal Solution)']], index=['A+ (Ideal)'])
+                    a_minus_df = pd.DataFrame([steps_dict['Step 3: Ideal Solutions']['A- (Anti-Ideal Solution)']], index=['A- (Anti-Ideal)'])
+                    st.dataframe(pd.concat([a_plus_df, a_minus_df]), use_container_width=True)
+
+                with st.expander("Step 4: Distances to Ideal Solutions", expanded=False):
+                    st.markdown(r'''
+                    **Formulas:**
+                    - **Distance to Yielded-Ideal ($D^+_i$):** $D^+_i = \sum_j |v_{ij} - A^+_j|$
+                    - **Distance to Anti-Ideal ($D^-_i$):** $D^-_i = \sum_j |v_{ij} - A^-_j|$
+                    ''')
+                    st.dataframe(steps_dict['Step 4: Distances to Ideal Solutions'], use_container_width=True)
+
+                with st.expander("Step 5: Final Closeness Score & Ranking", expanded=False):
+                    st.markdown(r'''
+                    **Formula:**
+                    $$D_i = \frac{(1 - \beta) D^-_i}{\beta D^+_i + (1 - \beta) D^-_i}$$
+                    
+                    *(where $\beta$ is the closeness parameter. Higher score implies better rank)*
+                    ''')
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown("**Final Closeness Scores:**")
+                        st.dataframe(steps_dict['Step 5: Final Closeness Score'], use_container_width=True)
+                    with col2:
+                        st.markdown("**Final Result and Ranking:**")
+                        st.dataframe(steps_dict['Step 6: Final Result and Ranking'][['Rank', 'Closeness Score (D_i)']], use_container_width=True)
             
         except Exception as e:
             st.error(f"An error occurred during calculation: {e}")
