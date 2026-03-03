@@ -1,5 +1,9 @@
 import pandas as pd
 import numpy as np
+import re
+
+def natural_sort_key(s):
+    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s))]
 
 def calculate_aras(data: pd.DataFrame, weights: dict, directions: dict, return_steps: bool = False):
     """
@@ -99,7 +103,9 @@ def calculate_aras(data: pd.DataFrame, weights: dict, directions: dict, return_s
     results['K (Utility Degree)'] = K
     results['Rank'] = rank
     
-    results = results.sort_values(by='Rank')
+    # Sort by rank, then naturally by alternative name (index)
+    results['sort_index'] = results.index.map(lambda x: tuple(natural_sort_key(x)))
+    results = results.sort_values(by=['Rank', 'sort_index']).drop(columns=['sort_index'])
     
     if return_steps:
         steps_dict['Step 5: Final Result and Ranking'] = results.copy()

@@ -1,5 +1,9 @@
 import pandas as pd
 import numpy as np
+import re
+
+def natural_sort_key(s):
+    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s))]
 
 def calculate_fuzzy_aras(data: pd.DataFrame, weights: dict, directions: dict, return_steps: bool = False):
     """
@@ -140,9 +144,11 @@ def calculate_fuzzy_aras(data: pd.DataFrame, weights: dict, directions: dict, re
     results['K_i (Utility Degree)'] = K
     results['Rank'] = rank
     
-    results_sorted = results.sort_values(by='Rank')
-    steps['Step 7: Final Result and Ranking'] = results_sorted.copy()
+    # Sort by rank, then naturally by alternative name (index)
+    results['sort_index'] = results.index.map(lambda x: tuple(natural_sort_key(x)))
+    results = results.sort_values(by=['Rank', 'sort_index']).drop(columns=['sort_index'])
+    steps['Step 7: Final Result and Ranking'] = results.copy()
     
     if return_steps:
-        return results_sorted, steps
-    return results_sorted
+        return results, steps
+    return results

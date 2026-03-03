@@ -1,5 +1,9 @@
 import pandas as pd
 import numpy as np
+import re
+
+def natural_sort_key(s):
+    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s))]
 
 def calculate_arie(matrix, weights, directions, gamma=1.0, kappa=0.5, return_steps=False):
     """
@@ -105,7 +109,10 @@ def calculate_arie(matrix, weights, directions, gamma=1.0, kappa=0.5, return_ste
     
     # Rank descendingly
     results_df['Rank'] = results_df['Relative Closeness (RC_i)'].rank(ascending=False, method='min').astype(int)
-    results_df = results_df.sort_values(by='Rank')
+    
+    # Sort by rank, then naturally by alternative name (index)
+    results_df['sort_index'] = results_df.index.map(lambda x: tuple(natural_sort_key(x)))
+    results_df = results_df.sort_values(by=['Rank', 'sort_index']).drop(columns=['sort_index'])
     
     if return_steps:
         steps['Step 5: Final Result and Ranking'] = results_df.copy()
