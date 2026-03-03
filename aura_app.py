@@ -170,6 +170,9 @@ else:
         df = pd.read_csv(uploaded_file, index_col=0)
     else:
         df = pd.read_excel(uploaded_file, index_col=0)
+    
+    # Apply natural sorting to the index (alternatives) so A1, A2, ..., A10 instead of A1, A10, A2
+    df = df.loc[sorted(df.index, key=natural_sort_key)]
         
     # Validation & Parsing (moved out of UI components to happen first)
     is_valid = True
