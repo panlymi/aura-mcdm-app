@@ -11,6 +11,7 @@ from moora_calculator import calculate_moora
 from fuzzy_parser import parse_fuzzy_matrix, parse_fuzzy_weights
 import numpy as np
 from entropy_calculator import calculate_entropy_weights
+from merec_calculator import calculate_merec_weights
 
 def natural_sort_key(s):
     return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s))]
@@ -112,6 +113,8 @@ if "normalize_weights" not in st.session_state:
     st.session_state.normalize_weights = False
 if "ewm_steps" not in st.session_state:
     st.session_state.ewm_steps = None
+if "merec_steps" not in st.session_state:
+    st.session_state.merec_steps = None
 
 # Reset calculation state when method or file changes
 if "prev_method" not in st.session_state:
@@ -229,7 +232,7 @@ else:
                 default_val = 1.0 / num_criteria if num_criteria > 0 else 1.0
                 
                 weight_calc_method = st.radio("Weight Calculation Method", 
-                                              options=["Manual / Equal Weights", "Entropy Weight Method (Objective)"], 
+                                              options=["Manual / Equal Weights", "Entropy Weight Method (Objective)", "MEREC (Objective)"], 
                                               horizontal=True)
                 
                 direction_options = ["maximize", "minimize", "target"] if mcdm_method in ["SYAI", "ARIE"] else ["maximize", "minimize"]
@@ -263,13 +266,17 @@ else:
                     "Target Value": 0.0
                 })
                 
-                if weight_calc_method == "Entropy Weight Method (Objective)":
-                    st.info("EWM evaluates the variation in criteria data to assign weights objectively. You only need to configure the Directions below.")
-                    ewm_normalization = st.selectbox(
-                        "EWM Normalization Method",
-                        ["Simple Proportions (P_ij = x_ij / sum_x)", "Shifted Min-Max (Min-Max + 0.001)", "Strict Min-Max (Current)"],
-                        help="Select the normalization formula used for entropy probability calculation."
-                    )
+                if weight_calc_method in ["Entropy Weight Method (Objective)", "MEREC (Objective)"]:
+                    if weight_calc_method == "Entropy Weight Method (Objective)":
+                        st.info("EWM evaluates the variation in criteria data to assign weights objectively. You only need to configure the Directions below.")
+                        ewm_normalization = st.selectbox(
+                            "EWM Normalization Method",
+                            ["Simple Proportions (P_ij = x_ij / sum_x)", "Shifted Min-Max (Min-Max + 0.001)", "Strict Min-Max (Current)"],
+                            help="Select the normalization formula used for entropy probability calculation."
+                        )
+                    else:
+                        st.info("MEREC determines weights by evaluating the removal effect of each criterion. You only need to configure the Directions below.")
+                        
                     edited_weights_df = st.data_editor(
                         weights_df_init,
                         column_config={
@@ -315,12 +322,22 @@ else:
                     ewm_weights, ewm_steps = calculate_entropy_weights(matrix_to_calc, directions, method=ewm_method_code)
                     weights = ewm_weights
                     st.session_state.ewm_steps = ewm_steps
+                    st.session_state.merec_steps = None
                     st.markdown("**Calculated Entropy Weights:**")
                     ewm_df = pd.DataFrame(list(weights.items()), columns=["Criterion", "Calculated Weight"])
                     st.dataframe(ewm_df.style.format({"Calculated Weight": "{:.4f}"}), use_container_width=True, hide_index=True)
+                elif weight_calc_method == "MEREC (Objective)":
+                    merec_weights, merec_steps = calculate_merec_weights(matrix_to_calc, directions)
+                    weights = merec_weights
+                    st.session_state.merec_steps = merec_steps
+                    st.session_state.ewm_steps = None
+                    st.markdown("**Calculated MEREC Weights:**")
+                    merec_df = pd.DataFrame(list(weights.items()), columns=["Criterion", "Calculated Weight"])
+                    st.dataframe(merec_df.style.format({"Calculated Weight": "{:.4f}"}), use_container_width=True, hide_index=True)
                 else:
                     weights = dict(zip(edited_weights_df["Criterion"], edited_weights_df["Weight"]))
                     st.session_state.ewm_steps = None
+                    st.session_state.merec_steps = None
                         
             else:
                 num_criteria = len(criteria)
@@ -578,6 +595,42 @@ else:
                             st.markdown("**Final Entropy Weights ($w_j$)**")
                             w_df = pd.DataFrame.from_dict(ewm_steps.get("Step 6: Final Entropy Weights", {}), orient='index', columns=['w_j'])
                             st.dataframe(w_df, use_container_width=True)
+                            
+                if st.session_state.get('merec_steps'):
+                    merec_steps = st.session_state.merec_steps
+                    st.subheader("MEREC (Objective Weighting) Calculations")
+                    with st.expander("MEREC Step 2: Normalized Decision Matrix", expanded=False):
+                        st.markdown(r'''
+                        **Normalization:**
+                        - **Beneficial ($N_{ij}$):** $\frac{\min_k x_{kj}}{x_{ij}}$
+                        - **Non-Beneficial ($N_{ij}$):** $\frac{x_{ij}}{\max_k x_{kj}}$
+                        ''')
+                        st.dataframe(merec_steps.get("Step 2: Normalized Decision Matrix (N)", pd.DataFrame()), use_container_width=True)
+                    with st.expander("MEREC Step 3 & 4: Overall Performance & Removal Performance", expanded=False):
+                        st.markdown(r'''
+                        **1. Logarithmic Penalty:** $|\ln(N_{ij})|$
+                        **2. Overall Performance ($S_i$):** $S_i = \ln \left( 1 + \left( \frac{1}{m} \sum_{j} |\ln(N_{ij})| \right) \right)$
+                        **3. Performance Without Criterion ($S'_{ij}$):** $S'_{ij} = \ln \left( 1 + \left( \frac{1}{m} \sum_{k \neq j} |\ln(N_{ik})| \right) \right)$
+                        ''')
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            st.markdown("**Overall Performance ($S_i$)**")
+                            st.dataframe(merec_steps.get("Step 3: Overall Performance (S_i)", pd.DataFrame()), use_container_width=True)
+                        with c2:
+                            st.markdown("**Performance w/o Criterion ($S'_{ij}$)**")
+                            st.dataframe(merec_steps.get("Step 4: Performance Without Criterion (S'_ij)", pd.DataFrame()), use_container_width=True)
+                    with st.expander("MEREC Step 5 & 6: Removal Effects and Final Weights", expanded=False):
+                        st.markdown(r'''
+                        **1. Removal Effect ($E_j$):** $E_j = \sum_{i} |S'_{ij} - S_i|$
+                        **2. Final Weight ($w_j$):** $w_j = \frac{E_j}{\sum_k E_k}$
+                        ''')
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            st.markdown("**Removal Effects ($E_j$)**")
+                            st.dataframe(merec_steps.get("Step 5: Removal Effects (E_j)", pd.DataFrame()), use_container_width=True)
+                        with c2:
+                            st.markdown("**Final MEREC Weights ($w_j$)**")
+                            st.dataframe(merec_steps.get("Step 6: Final Weights (w_j)", pd.DataFrame()), use_container_width=True)
                             
                 st.subheader(f"Step-by-Step {mcdm_method} Calculations")
                 st.markdown("This section details the internal math so researchers can verify the results manually.")
