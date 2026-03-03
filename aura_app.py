@@ -543,8 +543,19 @@ else:
                     ewm_steps = st.session_state.ewm_steps
                     st.subheader("Entropy Weight Method (Objective) Calculations")
                     with st.expander("EWM Step 2: Normalized Data", expanded=False):
+                        st.markdown(r'''
+                        **Normalization Strategy:**
+                        - **Simple Proportions:** $P_{ij} = x_{ij} / \sum x_{ij}$ (skips standard Min-Max)
+                        - **Min-Max (Strict/Shifted):** Scales $x_{ij}$ to $[0, 1]$ based on maximize/minimize rules.
+                        ''')
                         st.dataframe(ewm_steps.get("Step 2: Normalized Data", pd.DataFrame()), use_container_width=True)
                     with st.expander("EWM Step 3 & 4: Probability and Information Entropy", expanded=False):
+                        st.markdown(r'''
+                        **1. Probability ($P_{ij}$):** Proportions of the values (shifted by $+0.001$ if using Shifted Min-Max).
+                        **2. Information Entropy ($e_j$):** 
+                        $$e_j = -k \sum_{i=1}^{m} P_{ij} \ln(P_{ij})$$
+                        *(where $k = 1 / \ln(m)$, $m$ is the number of alternatives, and $0 \ln(0)$ is treated as $0$)*
+                        ''')
                         c1, c2 = st.columns(2)
                         with c1:
                             st.markdown("**Probability ($p_{ij}$)**")
@@ -554,6 +565,10 @@ else:
                             e_df = pd.DataFrame.from_dict(ewm_steps.get("Step 4: Information Entropy (e_j)", {}), orient='index', columns=['e_j'])
                             st.dataframe(e_df, use_container_width=True)
                     with st.expander("EWM Step 5 & 6: Diversification and Final Weights", expanded=False):
+                        st.markdown(r'''
+                        **1. Degree of Diversification ($d_j$):** $d_j = 1 - e_j$
+                        **2. Final Entropy Weight ($w_j$):** $w_j = \frac{d_j}{\sum d_j}$
+                        ''')
                         c1, c2 = st.columns(2)
                         with c1:
                             st.markdown("**Degree of Diversification ($d_j = 1 - e_j$)**")
