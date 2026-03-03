@@ -1,13 +1,18 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
+import re
 from aura_calculator import calculate_aura
 from aras_calculator import calculate_aras
 from fuzzy_aras_calculator import calculate_fuzzy_aras
 from syai_calculator import calculate_syai
 from arie_calculator import calculate_arie
+from moora_calculator import calculate_moora
 from fuzzy_parser import parse_fuzzy_matrix, parse_fuzzy_weights
 import numpy as np
+
+def natural_sort_key(s):
+    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s))]
 
 # Function to generate sample CSV templates
 @st.cache_data
@@ -18,17 +23,24 @@ st.set_page_config(page_title="MCDM Calculator", layout="wide", page_icon="📊"
 
 st.title("Multi-Criteria Decision Making (MCDM) Calculator 📊")
 st.markdown("""
-This application implements five highly effective MCDM methods:
-1. **Adaptive Utility Ranking Algorithm (AURA)**
-2. **Additive Ratio Assessment (ARAS)**
-3. **Fuzzy Additive Ratio Assessment (Fuzzy ARAS)**
-4. **Simplified Yielded Aggregation Index (SYAI)**
-5. **Adaptive Ranking with Ideal Evaluation (ARIE)**
+This application implements six highly effective MCDM methods:
+- **AURA** (Adaptive Utility Ranking Algorithm)
+- **ARAS** (Additive Ratio Assessment - Crisp & Fuzzy)
+- **SYAI** (Simplified Yielded Aggregation Index)
+- **ARIE** (Adaptive Ranking with Ideal Evaluation)
+- **MOORA** (Multi-Objective Optimization on the basis of Ratio Analysis)
+
+### Instructions:
 """)
 
 # --- SIDEBAR CONFIGURATION ---
-st.sidebar.header("⚙️ Global Settings")
-mcdm_method = st.sidebar.selectbox("Select Method", ["AURA", "ARAS", "Fuzzy ARAS", "SYAI", "ARIE"])
+st.sidebar.title("Configuration")
+
+st.sidebar.subheader("Method Selection")
+mcdm_method = st.sidebar.selectbox(
+    "Choose MCDM Method", 
+    ["AURA", "ARAS", "Fuzzy ARAS", "SYAI", "ARIE", "MOORA"]
+)
 
 weight_type = None
 fuzzy_matrix_format = None
@@ -366,12 +378,13 @@ else:
                         if mcdm_method == "AURA":
                             res_df, steps = calculate_aura(matrix_to_calc, weights, directions, alpha, p_metric, return_steps=True)
                         elif mcdm_method == "ARAS":
-                            res_df = calculate_aras(matrix_to_calc, weights, directions)
-                            steps = {} 
+                            res_df, steps = calculate_aras(matrix_to_calc, weights, directions, return_steps=True)
                         elif mcdm_method == "SYAI":
                             res_df, steps = calculate_syai(matrix_to_calc, weights, directions, beta, return_steps=True)
                         elif mcdm_method == "ARIE":
                             res_df, steps = calculate_arie(matrix_to_calc, weights, directions, gamma, kappa, return_steps=True)
+                        elif mcdm_method == "MOORA":
+                            res_df, steps = calculate_moora(matrix_to_calc, weights, directions, return_steps=True)
                         else:
                             res_df, steps = calculate_fuzzy_aras(matrix_to_calc, weights, directions, return_steps=True)
                         
@@ -412,6 +425,11 @@ else:
                     score_col = 'Relative Closeness (RC_i)'
                     sort_ascending = False 
                     unit = "Closeness"
+                elif mcdm_method == "MOORA":
+                    cols_to_format = ['y_i (Assessment Value)']
+                    score_col = 'y_i (Assessment Value)'
+                    sort_ascending = False 
+                    unit = "Assessment"
                 else:
                     cols_to_format = ['S_i (Crisp)', 'K_i (Utility Degree)']
                     score_col = 'K_i (Utility Degree)'
@@ -451,9 +469,12 @@ else:
                 if alt_col_name != 'Alternative':
                     chart_data.rename(columns={alt_col_name: 'Alternative'}, inplace=True)
                     alt_col_name = 'Alternative'
+                
+                # Apply natural sorting to the alternatives
+                unique_alts = sorted(chart_data[alt_col_name].unique(), key=natural_sort_key)
                     
                 chart = alt.Chart(chart_data).mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3, color='#4A90E2').encode(
-                    x=alt.X(f"{alt_col_name}:N", sort=None, title="Alternative", axis=alt.Axis(labelAngle=-45)),
+                    x=alt.X(f"{alt_col_name}:N", sort=list(chart_data[alt_col_name]), title="Alternative", axis=alt.Axis(labelAngle=-45)),
                     y=alt.Y(f"{score_col}:Q", title=score_col),
                     tooltip=[alt.Tooltip(f"{alt_col_name}:N", title="Alternative"), 
                              alt.Tooltip(f"{score_col}:Q", title="Score", format=".4f")]
@@ -467,8 +488,6 @@ else:
         with tab_steps:
             if not st.session_state.calculated:
                 st.info("Steps will appear here after you run the calculation in the Setup tab.")
-            elif mcdm_method == "ARAS":
-                st.info("Detailed step-by-step breakdown is currently not implemented for plain ARAS. Ranking results are available.")
             else:
                 steps_dict = st.session_state.steps_dict
                 st.subheader(f"Step-by-Step {mcdm_method} Calculations")
@@ -655,6 +674,79 @@ else:
                                 st.dataframe(steps_dict['Step 5: Final Result and Ranking'][['Rank', 'Relative Closeness (RC_i)']], use_container_width=True)
                             except KeyError: pass
 
+                elif mcdm_method == "ARAS":
+                    with st.expander("Step 1: Decision Matrix with Optimal Alternative ($x_0$)", expanded=False):
+                        st.markdown(r'''
+                        **Determining Optimal Alternative:**
+                        - For Maximize Criteria: $x_{0j} = \max_i x_{ij}$
+                        - For Minimize Criteria: $x_{0j} = \min_i x_{ij}$
+                        ''')
+                        st.dataframe(steps_dict.get('Step 1b: Decision Matrix with Optimal Alternative ($x_0$)', pd.DataFrame()), use_container_width=True)
+
+                    with st.expander("Step 2: Normalized Decision Matrix", expanded=False):
+                        st.markdown(r'''
+                        **Normalization Formulas:**
+                        - **Benefit Criteria:** $\overline{x}_{ij} = \frac{x_{ij}}{\sum_{i=0}^{m} x_{ij}}$
+                        - **Cost Criteria:** $\overline{x}_{ij} = \frac{1/x_{ij}}{\sum_{i=0}^{m} (1/x_{ij})}$
+                        ''')
+                        st.dataframe(steps_dict.get(r'Step 2: Normalized Decision Matrix ($\overline{x}_{ij}$)', pd.DataFrame()), use_container_width=True)
+
+                    with st.expander("Step 3: Weighted Normalized Matrix", expanded=False):
+                        st.markdown(r'''
+                        **Formula:** $\hat{x}_{ij} = \overline{x}_{ij} \times w_j$
+                        ''')
+                        st.dataframe(steps_dict.get(r'Step 3: Weighted Normalized Matrix ($\hat{x}_{ij}$)', pd.DataFrame()), use_container_width=True)
+
+                    with st.expander("Step 4 & 5: Optimality Function & Utility Degree", expanded=False):
+                        st.markdown(r'''
+                        **Optimality Function ($S_i$):** $S_i = \sum_{j=1}^{n} \hat{x}_{ij}$
+                        **Utility Degree ($K_i$):** $K_i = \frac{S_i}{S_0}$
+                        *(where $S_0$ is the optimality function for the optimal alternative)*
+                        ''')
+                        c1, c2 = st.columns([1, 2])
+                        with c1:
+                            st.markdown("**Optimality Function ($S_i$):**")
+                            st.dataframe(steps_dict.get('Step 4: Optimality Function ($S_i$)', pd.DataFrame()), use_container_width=True)
+                        with c2:
+                            st.markdown("**Final Result and Ranking:**")
+                            try:
+                                st.dataframe(steps_dict['Step 5: Final Result and Ranking'][['Rank', 'K (Utility Degree)', 'S (Optimality)']], use_container_width=True)
+                            except KeyError: pass
+
+                elif mcdm_method == "MOORA":
+                    with st.expander("Step 1: Decision Matrix", expanded=False):
+                        st.markdown("Original Decision Matrix $X$")
+                        st.dataframe(steps_dict.get('Step 1: Original Decision Matrix', pd.DataFrame()), use_container_width=True)
+
+                    with st.expander("Step 2: Ratio Normalized Matrix", expanded=False):
+                        st.markdown(r'''
+                        **Formula:**
+                        $x^*_{ij} = \frac{x_{ij}}{\sqrt{\sum_{i=1}^m x_{ij}^2}}$
+                        ''')
+                        st.dataframe(steps_dict.get(r'Step 2: Ratio Normalized Matrix ($x^*_{ij}$)', pd.DataFrame()), use_container_width=True)
+
+                    with st.expander("Step 3: Weighted Normalized Matrix", expanded=False):
+                        st.markdown(r'''
+                        **Formula:** $v_{ij} = w_j \times x^*_{ij}$
+                        ''')
+                        st.dataframe(steps_dict.get(r'Step 3: Weighted Normalized Matrix ($v_{ij}$)', pd.DataFrame()), use_container_width=True)
+
+                    with st.expander("Step 4 & 5: Normalized Assessment Value & Ranking", expanded=False):
+                        st.markdown(r'''
+                        **Formula:**
+                        $y_i = \sum_{j \in Maximize} v_{ij} - \sum_{j \in Minimize} v_{ij}$
+                        *(Higher $y_i$ score is better)*
+                        ''')
+                        c1, c2 = st.columns([1, 1])
+                        with c1:
+                            st.markdown("**Assessment Value ($y_i$):**")
+                            st.dataframe(steps_dict.get('Step 4: Normalized Assessment Value ($y_i$)', pd.DataFrame()), use_container_width=True)
+                        with c2:
+                            st.markdown("**Final Result and Ranking:**")
+                            try:
+                                st.dataframe(steps_dict['Step 5: Final Result and Ranking'][['Rank', 'y_i (Assessment Value)']], use_container_width=True)
+                            except KeyError: pass
+
                 elif mcdm_method == "Fuzzy ARAS":
                     with st.expander("Step 0: Fuzzy Weights", expanded=False):
                         st.markdown("**Weights converted to Triangular Fuzzy Numbers:**")
@@ -762,6 +854,9 @@ else:
                                 elif mcdm_method == "ARIE":
                                     temp_res = calculate_arie(matrix_to_calc, new_weights, directions, gamma, kappa)
                                     score_col_sens = 'Relative Closeness (RC_i)'
+                                elif mcdm_method == "MOORA":
+                                    temp_res = calculate_moora(matrix_to_calc, new_weights, directions)
+                                    score_col_sens = 'y_i (Assessment Value)'
                                 else: 
                                     temp_res, _ = calculate_fuzzy_aras(matrix_to_calc, new_weights, directions, return_steps=True)
                                     score_col_sens = 'K_i (Utility Degree)'
@@ -781,11 +876,13 @@ else:
                         
                         if sensitivity_results:
                             sens_df = pd.DataFrame(sensitivity_results)
+                            unique_alts_sens = sorted(sens_df['Alternative'].unique(), key=natural_sort_key)
+                            
                             st.markdown(f"**Impact of varying '{selected_criterion}' weight on Alternative Scores:**")
                             chart = alt.Chart(sens_df).mark_line(point=True).encode(
                                 x=alt.X('Weight:Q', title=f"Weight of '{selected_criterion}' (0 to 1)"),
                                 y=alt.Y('Score:Q', title="Score", scale=alt.Scale(zero=False)),
-                                color=alt.Color('Alternative:N', legend=alt.Legend(orient='right')),
+                                color=alt.Color('Alternative:N', sort=unique_alts_sens, legend=alt.Legend(orient='right')),
                                 tooltip=['Alternative', alt.Tooltip('Weight', format='.2f'), alt.Tooltip('Score', format='.4f')]
                             ).properties(height=400).interactive()
                             st.altair_chart(chart, use_container_width=True)
@@ -837,10 +934,11 @@ else:
                             
                     if param_results:
                         p_df = pd.DataFrame(param_results)
+                        unique_alts_param = sorted(p_df['Alternative'].unique(), key=natural_sort_key)
                         p_chart = alt.Chart(p_df).mark_line(point=True).encode(
                             x=alt.X('Parameter:Q', title=param_name),
                             y=alt.Y('Score:Q', title="Score", scale=alt.Scale(zero=False)),
-                            color=alt.Color('Alternative:N', legend=alt.Legend(orient='right')),
+                            color=alt.Color('Alternative:N', sort=unique_alts_param, legend=alt.Legend(orient='right')),
                             tooltip=['Alternative', alt.Tooltip('Parameter', format='.2f'), alt.Tooltip('Score', format='.4f')]
                         ).properties(height=400).interactive()
                         st.altair_chart(p_chart, use_container_width=True)

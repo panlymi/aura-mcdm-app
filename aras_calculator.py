@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-def calculate_aras(data: pd.DataFrame, weights: dict, directions: dict):
+def calculate_aras(data: pd.DataFrame, weights: dict, directions: dict, return_steps: bool = False):
     """
     Computes the Additive Ratio Assessment (ARAS) MCDM method.
     
@@ -9,12 +9,17 @@ def calculate_aras(data: pd.DataFrame, weights: dict, directions: dict):
         data (pd.DataFrame): The decision matrix (alternatives as index/rows, criteria as columns).
         weights (dict): A dictionary of weights for each criterion.
         directions (dict): A dictionary specifying 'maximize' or 'minimize' for each criterion.
+        return_steps (bool): Whether to return a dictionary of intermediate calculation steps.
         
     Returns:
-        pd.DataFrame: A dataframe containing the rankings, scores, and utility degrees.
+        pd.DataFrame or tuple: A dataframe containing the rankings, scores, and utility degrees, or a tuple containing that and a dictionary of calculation steps.
     """
     df = data.copy()
     columns = df.columns
+    
+    steps_dict = {}
+    if return_steps:
+        steps_dict['Step 1: Original Decision Matrix'] = df.copy()
     
     # 1. Determine the optimal alternative (reference row x_0)
     x_0 = pd.Series(index=columns, dtype=float)
@@ -26,6 +31,9 @@ def calculate_aras(data: pd.DataFrame, weights: dict, directions: dict):
             
     # Append the optimal alternative to the dataframe
     df_with_opt = pd.concat([pd.DataFrame([x_0], index=['Optimal_0']), df])
+    
+    if return_steps:
+        steps_dict['Step 1b: Decision Matrix with Optimal Alternative ($x_0$)'] = df_with_opt.copy()
     
     # 2. Normalize the decision matrix
     normalized_df = pd.DataFrame(index=df_with_opt.index, columns=columns)
@@ -48,17 +56,27 @@ def calculate_aras(data: pd.DataFrame, weights: dict, directions: dict):
                 # Fallback if there are zeros or NAs
                 normalized_df[col] = 0.0
                 
+    if return_steps:
+        steps_dict['Step 2: Normalized Decision Matrix ($\overline{x}_{ij}$)'] = normalized_df.copy()
+                
     # 3. Calculate the weighted normalized matrix
     weighted_df = pd.DataFrame(index=df_with_opt.index, columns=columns)
     for col in columns:
         w = weights.get(col, 1.0)
         weighted_df[col] = normalized_df[col] * w
         
+    if return_steps:
+        steps_dict['Step 3: Weighted Normalized Matrix ($\hat{x}_{ij}$)'] = weighted_df.copy()
+        
     # 4. Calculate the Optimality Function (S_i)
     # S_i is the sum of weighted normalized values for each alternative
     # S_0 is the optimality function for the optimal alternative
     S = weighted_df.sum(axis=1)
     S_0 = S['Optimal_0']
+    
+    if return_steps:
+        s_df = pd.DataFrame(S, columns=['Optimality Function ($S_i$)'])
+        steps_dict['Step 4: Optimality Function ($S_i$)'] = s_df.copy()
     
     # 5. Calculate the Utility Degree (K_i)
     # K_i = S_i / S_0
@@ -80,4 +98,10 @@ def calculate_aras(data: pd.DataFrame, weights: dict, directions: dict):
     results['K (Utility Degree)'] = K
     results['Rank'] = rank
     
-    return results.sort_values(by='Rank')
+    results = results.sort_values(by='Rank')
+    
+    if return_steps:
+        steps_dict['Step 5: Final Result and Ranking'] = results.copy()
+        return results, steps_dict
+    
+    return results
