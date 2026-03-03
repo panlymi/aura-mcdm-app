@@ -265,6 +265,11 @@ else:
                 
                 if weight_calc_method == "Entropy Weight Method (Objective)":
                     st.info("EWM evaluates the variation in criteria data to assign weights objectively. You only need to configure the Directions below.")
+                    ewm_normalization = st.selectbox(
+                        "EWM Normalization Method",
+                        ["Simple Proportions (P_ij = x_ij / sum_x)", "Shifted Min-Max (Min-Max + 0.001)", "Strict Min-Max (Current)"],
+                        help="Select the normalization formula used for entropy probability calculation."
+                    )
                     edited_weights_df = st.data_editor(
                         weights_df_init,
                         column_config={
@@ -299,8 +304,15 @@ else:
                         directions[crit] = direction_val
                         
                 if weight_calc_method == "Entropy Weight Method (Objective)":
+                    if ewm_normalization.startswith("Simple"):
+                        ewm_method_code = "simple"
+                    elif ewm_normalization.startswith("Shifted"):
+                        ewm_method_code = "shifted"
+                    else:
+                        ewm_method_code = "standard"
+                        
                     # Dynamically calculate weights and display them
-                    ewm_weights, ewm_steps = calculate_entropy_weights(matrix_to_calc, directions)
+                    ewm_weights, ewm_steps = calculate_entropy_weights(matrix_to_calc, directions, method=ewm_method_code)
                     weights = ewm_weights
                     st.session_state.ewm_steps = ewm_steps
                     st.markdown("**Calculated Entropy Weights:**")
