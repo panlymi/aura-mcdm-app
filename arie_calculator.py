@@ -42,13 +42,13 @@ def calculate_arie(matrix, weights, directions, gamma=1.0, kappa=0.5, return_ste
             target_val = dir_info.get("value", 0.0)
             # target-type (Goal) criterion
             max_diff = max(abs(x_max - target_val), abs(x_min - target_val))
-            if max_diff == 0:
+            if abs(max_diff) < 1e-9:
                 r_matrix[c] = 1.0
             else:
                 r_matrix[c] = 1 - (abs(x_j - target_val) / max_diff)
         else:
             if dir_info == 'maximize':
-                if x_max == 0:
+                if abs(x_max) < 1e-9:
                     r_matrix[c] = 0.0
                 else:
                     r_matrix[c] = x_j / x_max

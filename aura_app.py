@@ -577,7 +577,11 @@ else:
                             - $\min(x_j)$ for non-beneficial criteria (minimize)
                             - Target value $T$ for goal criteria
                         ''')
-                        st.dataframe(steps_dict.get('Step 1: Normalized Decision Matrix', pd.DataFrame()), use_container_width=True)
+                        st.dataframe(
+                            steps_dict.get('Step 1: Normalized Decision Matrix', pd.DataFrame()),
+                            use_container_width=True,
+                            column_config={col: st.column_config.NumberColumn(format="%.4f") for col in matrix_to_calc.columns}
+                        )
 
                     with st.expander("Step 2: Weighted Normalized Matrix", expanded=False):
                         st.markdown(r'''
@@ -976,7 +980,7 @@ else:
                 st.subheader("⚖️ Comparative Analysis")
                 st.markdown("Select multiple MCDM methods below to compare their final rankings side-by-side using the current matrix and criteria weights.")
                 
-                compare_methods = st.multiselect("Select Methods to Compare", ["AURA", "ARAS", "SYAI", "ARIE"], default=["AURA", "ARAS", "SYAI", "ARIE"])
+                compare_methods = st.multiselect("Select Methods to Compare", ["AURA", "ARAS", "SYAI", "ARIE", "MOORA"], default=["AURA", "ARAS", "SYAI", "ARIE", "MOORA"])
                 
                 if compare_methods:
                     compare_results = {}
@@ -998,6 +1002,10 @@ else:
                                 temp_res = calculate_arie(matrix_to_calc, weights, directions, gamma, kappa)
                                 score_col = 'Relative Closeness (RC_i)'
                                 sort_asc = False
+                            elif meth == "MOORA":
+                                temp_res = calculate_moora(matrix_to_calc, weights, directions)
+                                score_col = 'y_i (Assessment Value)'
+                                sort_asc = False
                             
                             # Calculate ranks: ascending=sort_asc
                             temp_res['Rank'] = temp_res[score_col].rank(ascending=sort_asc, method='min').astype(int)
@@ -1009,8 +1017,32 @@ else:
                         comp_df = pd.DataFrame(compare_results)
                         
                         st.markdown("### 🏆 Method Ranking Comparison")
-                        st.dataframe(comp_df, use_container_width=True)
+                        st.dataframe(comp_df,
+                            use_container_width=True,
+                            column_config={
+                                method: st.column_config.NumberColumn(
+                                    method, format="%d", help=f"Rank according to {method}"
+                                ) 
+                                for method in comp_df.columns
+                            }
+                        )
                         
+                        # Display Winning Alternatives count
+                        st.markdown("### 🥇 Top Performing Alternatives")
+                        winning_alts = comp_df[comp_df == 1].count(axis=1) # count how many times each alternative got Rank 1
+                        winning_alts = winning_alts[winning_alts > 0].sort_values(ascending=False)
+                        if not winning_alts.empty:
+                            winner_df = winning_alts.reset_index()
+                            winner_df.columns = ['Alternative', 'Times Ranked #1']
+                            winner_chart = alt.Chart(winner_df).mark_bar(color='#FFD700').encode(
+                                x=alt.X('Alternative:N', sort='-y'),
+                                y=alt.Y('Times Ranked #1:Q', title="Times Ranked #1"),
+                                tooltip=['Alternative', 'Times Ranked #1']
+                            ).properties(height=250, title="Number of #1 Ranks per Alternative")
+                            st.altair_chart(winner_chart, use_container_width=True)
+                        else:
+                            st.info("No single alternative clearly dominates rank #1 across all methods.")
+                            
                         # Bump chart visualizing rank shifts
                         comp_df_reset = comp_df.reset_index()
                         if comp_df_reset.columns[0] != 'Alternative':
@@ -1025,4 +1057,37 @@ else:
                         ).properties(height=400, title="Alternative Ranking Shifts Across Methods").interactive()
                         
                         st.altair_chart(chart, use_container_width=True)
+                        
+                        # Spearman Rank Correlation Heatmap
+                        if len(compare_methods) > 1:
+                            st.markdown("---")
+                            st.markdown("### 🔗 Mathematical Rank Correlation (Spearman's $\\rho$)")
+                            st.markdown("A higher value (closer to 1.0) indicates that the methods produce broadly similar relative ranking sequences.")
+                            correlation_matrix = comp_df.corr(method='spearman')
+                            
+                            # Prepare data for Altair
+                            corr_reset = correlation_matrix.reset_index().melt('index')
+                            corr_reset.columns = ['Method 1', 'Method 2', 'Correlation']
+                            
+                            base = alt.Chart(corr_reset).encode(
+                                x=alt.X('Method 1:O', sort=compare_methods),
+                                y=alt.Y('Method 2:O', sort=compare_methods),
+                            )
+
+                            heatmap = base.mark_rect().encode(
+                                color=alt.Color('Correlation:Q', scale=alt.Scale(domain=[-1, 1], scheme='redblue'), title="Spearman's ρ"),
+                                tooltip=['Method 1', 'Method 2', alt.Tooltip('Correlation', format='.3f')]
+                            )
+
+                            text = base.mark_text(baseline='middle').encode(
+                                text=alt.Text('Correlation:Q', format='.2f'),
+                                color=alt.condition(
+                                    alt.datum.Correlation > 0.5,
+                                    alt.value('white'),
+                                    alt.value('black')
+                                )
+                            )
+
+                            corr_chart = (heatmap + text).properties(height=400, title="Method vs Method Spearman's Rank Correlation")
+                            st.altair_chart(corr_chart, use_container_width=True)
 

@@ -41,16 +41,17 @@ def calculate_aras(data: pd.DataFrame, weights: dict, directions: dict, return_s
         if directions.get(col, 'maximize') == 'maximize':
             # Benefit criteria: x_ij / sum(x_ij)
             col_sum = df_with_opt[col].sum()
-            if col_sum != 0:
+            if abs(col_sum) > 1e-9:
                 normalized_df[col] = df_with_opt[col] / col_sum
             else:
                 normalized_df[col] = 0.0
         else:
             # Cost criteria: (1 / x_ij) / sum(1 / x_ij)
             # Handle division by zero
-            reciprocal = 1.0 / df_with_opt[col].replace(0, np.nan)
-            reciprocal_sum = reciprocal.sum()
-            if reciprocal_sum != 0 and pd.notna(reciprocal_sum):
+            # using epsilon to prevent dividing by tiny numbers safely
+            reciprocal = 1.0 / (df_with_opt[col].replace(0, np.nan) + 1e-9).fillna(np.inf)
+            reciprocal_sum = reciprocal.replace(np.inf, np.nan).sum() 
+            if abs(reciprocal_sum) > 1e-9 and pd.notna(reciprocal_sum):
                 normalized_df[col] = reciprocal / reciprocal_sum
             else:
                 # Fallback if there are zeros or NAs
@@ -82,7 +83,7 @@ def calculate_aras(data: pd.DataFrame, weights: dict, directions: dict, return_s
     # K_i = S_i / S_0
     # K_i ranges from 0 to 1. Higher is better.
     K = pd.Series(index=df.index, dtype=float)
-    if S_0 != 0:
+    if abs(S_0) > 1e-9:
         for idx in df.index:
             K[idx] = S[idx] / S_0
     else:

@@ -16,6 +16,9 @@ def calculate_syai(data: pd.DataFrame, weights: dict, directions: dict, beta: fl
         pd.DataFrame or tuple: A dataframe containing SYAI calculation steps and final ranking.
                                If return_steps=True, returns (results_df, steps_dict).
     """
+    if not (0.0 <= beta <= 1.0):
+        beta = max(0.0, min(1.0, beta))
+        
     # Create copies
     df = data.copy()
     columns = df.columns
@@ -38,8 +41,8 @@ def calculate_syai(data: pd.DataFrame, weights: dict, directions: dict, beta: fl
         min_val = col_data.min()
         r_val = max_val - min_val
         
-        # Guard against zero range (all values identical)
-        if r_val == 0:
+        # Guard against zero range (all values identical) or very close to zero
+        if r_val < 1e-9:
             norm_df[col] = 1.0  # If all items are identical, they all perfectly match the ideal
             continue
             
@@ -97,8 +100,8 @@ def calculate_syai(data: pd.DataFrame, weights: dict, directions: dict, beta: fl
     for idx in df.index:
         numerator = (1 - beta) * D_minus[idx]
         denominator = (beta * D_plus[idx]) + numerator
-        if denominator == 0:
-            D_score[idx] = 1.0 # If distance to both ideal and anti-ideal is 0, it is the only alternative
+        if denominator < 1e-9:
+            D_score[idx] = 1.0 # If distance to both ideal and anti-ideal is ~0, it perfectly relates.
         else:
             D_score[idx] = numerator / denominator
 

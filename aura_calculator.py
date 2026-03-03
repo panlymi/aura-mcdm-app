@@ -17,6 +17,10 @@ def calculate_aura(data: pd.DataFrame, weights: dict, directions: dict, alpha: f
         pd.DataFrame or tuple: A dataframe containing the rankings, scores, and distance metrics. 
                                If return_steps=True, returns (results_df, steps_dict).
     """
+    if not (0.0 <= alpha <= 1.0):
+        # Enforce bounds
+        alpha = max(0.0, min(1.0, alpha))
+        
     df = data.copy()
     steps = {}
     
@@ -32,9 +36,9 @@ def calculate_aura(data: pd.DataFrame, weights: dict, directions: dict, alpha: f
             continue
             
         if directions.get(col, 'maximize') == 'maximize':
-            normalized_df[col] = (df[col] - min_val) / (max_val - min_val)
+            normalized_df[col] = (df[col] - min_val) / max((max_val - min_val), 1e-9)
         else:
-            normalized_df[col] = (max_val - df[col]) / (max_val - min_val)
+            normalized_df[col] = (max_val - df[col]) / max((max_val - min_val), 1e-9)
 
     steps['Step 1: Normalized Decision Matrix'] = normalized_df.copy()
 
@@ -97,7 +101,7 @@ def calculate_aura(data: pd.DataFrame, weights: dict, directions: dict, alpha: f
     }
 
     # 5. Final Utility Score (Exact AURA Formula)
-    distances['Utility_Score'] = (alpha * (distances['D_plus'] - distances['D_minus']) + (1 - alpha) * distances['D_avg']) / 2
+    distances['Utility_Score'] = (alpha * (distances['D_plus'] - distances['D_minus']) + (1.0 - alpha) * distances['D_avg']) / 2.0
 
     steps['Step 5: Final Utility Score'] = distances[['Utility_Score']].copy()
 

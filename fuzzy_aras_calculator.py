@@ -63,9 +63,9 @@ def calculate_fuzzy_aras(data: pd.DataFrame, weights: dict, directions: dict, re
             sum_m = np.sum(m)
             sum_l = np.sum(l)
             # x_ij / sum(x_kj) -> (l/sum_u, m/sum_m, u/sum_l)
-            norm_col = [(l[i]/sum_u if sum_u!=0 else 0, 
-                         m[i]/sum_m if sum_m!=0 else 0, 
-                         u[i]/sum_l if sum_l!=0 else 0) for i in range(len(l))]
+            norm_col = [(l[i]/sum_u if abs(sum_u) > 1e-9 else 0.0, 
+                         m[i]/sum_m if abs(sum_m) > 1e-9 else 0.0, 
+                         u[i]/sum_l if abs(sum_l) > 1e-9 else 0.0) for i in range(len(l))]
             norm_df[col] = norm_col
         else:
             # Cost criteria
@@ -80,9 +80,9 @@ def calculate_fuzzy_aras(data: pd.DataFrame, weights: dict, directions: dict, re
             sum_inv_m = np.sum(inv_m)
             sum_inv_l = np.sum(inv_l)
             
-            norm_col = [(inv_l[i]/sum_inv_u if sum_inv_u!=0 else 0,
-                         inv_m[i]/sum_inv_m if sum_inv_m!=0 else 0,
-                         inv_u[i]/sum_inv_l if sum_inv_l!=0 else 0) for i in range(len(inv_l))]
+            norm_col = [(inv_l[i]/sum_inv_u if abs(sum_inv_u) > 1e-9 else 0.0,
+                         inv_m[i]/sum_inv_m if abs(sum_inv_m) > 1e-9 else 0.0,
+                         inv_u[i]/sum_inv_l if abs(sum_inv_l) > 1e-9 else 0.0) for i in range(len(inv_l))]
             norm_df[col] = norm_col
 
     steps['Step 2: Normalized Fuzzy Decision Matrix'] = norm_df.copy()
@@ -123,7 +123,7 @@ def calculate_fuzzy_aras(data: pd.DataFrame, weights: dict, directions: dict, re
     
     # 6. Calculate Utility Degree K_i and Rank
     K = pd.Series(index=df.index, dtype=float)
-    if S_0_crisp != 0:
+    if abs(S_0_crisp) > 1e-9:
         for idx in df.index:
             K[idx] = S_crisp[idx] / S_0_crisp
     else:

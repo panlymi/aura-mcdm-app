@@ -26,7 +26,7 @@ def calculate_moora(data: pd.DataFrame, weights: dict, directions: dict, return_
     normalized_df = pd.DataFrame(index=df.index, columns=columns)
     for col in columns:
         col_sum_sq = np.sqrt((df[col]**2).sum())
-        if col_sum_sq != 0:
+        if abs(col_sum_sq) > 1e-9:
             normalized_df[col] = df[col] / col_sum_sq
         else:
             normalized_df[col] = 0.0
