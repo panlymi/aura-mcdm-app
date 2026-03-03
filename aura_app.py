@@ -10,6 +10,7 @@ from arie_calculator import calculate_arie
 from moora_calculator import calculate_moora
 from fuzzy_parser import parse_fuzzy_matrix, parse_fuzzy_weights
 import numpy as np
+from entropy_calculator import calculate_entropy_weights
 
 def natural_sort_key(s):
     return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s))]
@@ -109,6 +110,8 @@ if "force_calculate" not in st.session_state:
     st.session_state.force_calculate = False
 if "normalize_weights" not in st.session_state:
     st.session_state.normalize_weights = False
+if "ewm_steps" not in st.session_state:
+    st.session_state.ewm_steps = None
 
 # Reset calculation state when method or file changes
 if "prev_method" not in st.session_state:
@@ -225,28 +228,33 @@ else:
                 num_criteria = len(criteria)
                 default_val = 1.0 / num_criteria if num_criteria > 0 else 1.0
                 
-                with st.expander("💡 Bulk Quick-Fill Weights", expanded=False):
-                    st.markdown("Paste all weights separated by commas, spaces, or tabs.")
-                    bulk_weights_input = st.text_area("Bulk Weights", key="bulk_weights", label_visibility="collapsed", help="e.g. 0.2, 0.3, 0.1, 0.4")
-                    parsed_weights = []
-                    if bulk_weights_input:
-                        import re
-                        try:
-                            parsed_weights = [float(x) for x in re.split(r'[,\s]+', bulk_weights_input.strip()) if x]
-                            if len(parsed_weights) == num_criteria:
-                                st.success("Weights parsed successfully!")
-                            else:
-                                st.warning(f"Expected {num_criteria} weights, found {len(parsed_weights)}.")
+                weight_calc_method = st.radio("Weight Calculation Method", 
+                                              options=["Manual / Equal Weights", "Entropy Weight Method (Objective)"], 
+                                              horizontal=True)
+                
+                direction_options = ["maximize", "minimize", "target"] if mcdm_method in ["SYAI", "ARIE"] else ["maximize", "minimize"]
+                parsed_weights = []
+                
+                if weight_calc_method == "Manual / Equal Weights":
+                    with st.expander("💡 Bulk Quick-Fill Weights", expanded=False):
+                        st.markdown("Paste all weights separated by commas, spaces, or tabs.")
+                        bulk_weights_input = st.text_area("Bulk Weights", key="bulk_weights", label_visibility="collapsed", help="e.g. 0.2, 0.3, 0.1, 0.4")
+                        if bulk_weights_input:
+                            import re
+                            try:
+                                parsed_weights = [float(x) for x in re.split(r'[,\s]+', bulk_weights_input.strip()) if x]
+                                if len(parsed_weights) == num_criteria:
+                                    st.success("Weights parsed successfully!")
+                                else:
+                                    st.warning(f"Expected {num_criteria} weights, found {len(parsed_weights)}.")
+                                    parsed_weights = []
+                            except ValueError:
+                                st.error("Invalid numbers detected. Please use format like: 0.2, 0.3, 0.1")
                                 parsed_weights = []
-                        except ValueError:
-                            st.error("Invalid numbers detected. Please use format like: 0.2, 0.3, 0.1")
-                            parsed_weights = []
 
                 weight_init_values = [default_val] * num_criteria
                 if len(parsed_weights) == num_criteria:
                     weight_init_values = parsed_weights
-
-                direction_options = ["maximize", "minimize", "target"] if mcdm_method in ["SYAI", "ARIE"] else ["maximize", "minimize"]
                 
                 weights_df_init = pd.DataFrame({
                     "Criterion": criteria,
@@ -255,18 +263,31 @@ else:
                     "Target Value": 0.0
                 })
                 
-                edited_weights_df = st.data_editor(
-                    weights_df_init,
-                    column_config={
-                        "Criterion": st.column_config.TextColumn("Criterion", disabled=True),
-                        "Weight": st.column_config.NumberColumn("Weight", min_value=0.0, format="%.4f", step=0.01), 
-                        "Direction": st.column_config.SelectboxColumn("Direction", options=direction_options),
-                        "Target Value": st.column_config.NumberColumn("Target Value (If 'target')", format="%.4f", step=None)
-                    },
-                    hide_index=True,
-                    use_container_width=True
-                )
-                weights = dict(zip(edited_weights_df["Criterion"], edited_weights_df["Weight"]))
+                if weight_calc_method == "Entropy Weight Method (Objective)":
+                    st.info("EWM evaluates the variation in criteria data to assign weights objectively. You only need to configure the Directions below.")
+                    edited_weights_df = st.data_editor(
+                        weights_df_init,
+                        column_config={
+                            "Criterion": st.column_config.TextColumn("Criterion", disabled=True),
+                            "Direction": st.column_config.SelectboxColumn("Direction", options=direction_options),
+                            "Target Value": st.column_config.NumberColumn("Target Value (If 'target')", format="%.4f", step=None)
+                        },
+                        hide_index=True,
+                        disabled=["Weight"],
+                        use_container_width=True
+                    )
+                else:
+                    edited_weights_df = st.data_editor(
+                        weights_df_init,
+                        column_config={
+                            "Criterion": st.column_config.TextColumn("Criterion", disabled=True),
+                            "Weight": st.column_config.NumberColumn("Weight", min_value=0.0, format="%.4f", step=0.01), 
+                            "Direction": st.column_config.SelectboxColumn("Direction", options=direction_options),
+                            "Target Value": st.column_config.NumberColumn("Target Value (If 'target')", format="%.4f", step=None)
+                        },
+                        hide_index=True,
+                        use_container_width=True
+                    )
                 
                 directions = {}
                 for _, row in edited_weights_df.iterrows():
@@ -276,6 +297,18 @@ else:
                         directions[crit] = {"type": "target", "value": row["Target Value"]}
                     else:
                         directions[crit] = direction_val
+                        
+                if weight_calc_method == "Entropy Weight Method (Objective)":
+                    # Dynamically calculate weights and display them
+                    ewm_weights, ewm_steps = calculate_entropy_weights(matrix_to_calc, directions)
+                    weights = ewm_weights
+                    st.session_state.ewm_steps = ewm_steps
+                    st.markdown("**Calculated Entropy Weights:**")
+                    ewm_df = pd.DataFrame(list(weights.items()), columns=["Criterion", "Calculated Weight"])
+                    st.dataframe(ewm_df.style.format({"Calculated Weight": "{:.4f}"}), use_container_width=True, hide_index=True)
+                else:
+                    weights = dict(zip(edited_weights_df["Criterion"], edited_weights_df["Weight"]))
+                    st.session_state.ewm_steps = None
                         
             else:
                 num_criteria = len(criteria)
@@ -493,6 +526,32 @@ else:
                 st.info("Steps will appear here after you run the calculation in the Setup tab.")
             else:
                 steps_dict = st.session_state.steps_dict
+                
+                if st.session_state.get('ewm_steps'):
+                    ewm_steps = st.session_state.ewm_steps
+                    st.subheader("Entropy Weight Method (Objective) Calculations")
+                    with st.expander("EWM Step 2: Normalized Data", expanded=False):
+                        st.dataframe(ewm_steps.get("Step 2: Normalized Data", pd.DataFrame()), use_container_width=True)
+                    with st.expander("EWM Step 3 & 4: Probability and Information Entropy", expanded=False):
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            st.markdown("**Probability ($p_{ij}$)**")
+                            st.dataframe(ewm_steps.get("Step 3: Proportion / Probability", pd.DataFrame()), use_container_width=True)
+                        with c2:
+                            st.markdown("**Information Entropy ($e_j$)**")
+                            e_df = pd.DataFrame.from_dict(ewm_steps.get("Step 4: Information Entropy (e_j)", {}), orient='index', columns=['e_j'])
+                            st.dataframe(e_df, use_container_width=True)
+                    with st.expander("EWM Step 5 & 6: Diversification and Final Weights", expanded=False):
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            st.markdown("**Degree of Diversification ($d_j = 1 - e_j$)**")
+                            d_df = pd.DataFrame.from_dict(ewm_steps.get("Step 5: Degree of Diversification (d_j)", {}), orient='index', columns=['d_j'])
+                            st.dataframe(d_df, use_container_width=True)
+                        with c2:
+                            st.markdown("**Final Entropy Weights ($w_j$)**")
+                            w_df = pd.DataFrame.from_dict(ewm_steps.get("Step 6: Final Entropy Weights", {}), orient='index', columns=['w_j'])
+                            st.dataframe(w_df, use_container_width=True)
+                            
                 st.subheader(f"Step-by-Step {mcdm_method} Calculations")
                 st.markdown("This section details the internal math so researchers can verify the results manually.")
                 
