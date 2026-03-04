@@ -237,7 +237,7 @@ else:
                                               options=["Manual / Equal Weights", "Entropy Weight Method (Objective)", "MEREC (Objective)"], 
                                               horizontal=True)
                 
-                direction_options = ["maximize", "minimize", "target"] if mcdm_method in ["SYAI", "ARIE"] else ["maximize", "minimize"]
+                direction_options = ["maximize", "minimize", "target"] if mcdm_method in ["AURA", "SYAI", "ARIE"] else ["maximize", "minimize"]
                 parsed_weights = []
                 
                 if weight_calc_method == "Manual / Equal Weights":
@@ -648,8 +648,12 @@ else:
                     with st.expander("Step 1: Normalized Decision Matrix", expanded=False):
                         st.markdown(r'''
                         **Formula:**
-                        - For Beneficial Criteria (Maximize): $r_{ij} = \frac{x_{ij} - \min(x_{ij})}{\max(x_{ij}) - \min(x_{ij})}$
-                        - For Non-Beneficial Criteria (Minimize): $r_{ij} = \frac{\max(x_{ij}) - x_{ij}}{\max(x_{ij}) - \min(x_{ij})}$
+                        $$r_{ij} = 1 - \frac{|x_{ij} - r_j|}{\max(x_j) - \min(x_j)}$$
+                        
+                        **Where $r_j$ is the reference value:**
+                        - For Beneficial Criteria (Maximize): $r_j = \max(x_j)$
+                        - For Non-Beneficial Criteria (Minimize): $r_j = \min(x_j)$
+                        - For Target Criteria: $r_j = \text{Target Value}$
                         ''')
                         st.dataframe(steps_dict.get('Step 1: Normalized Decision Matrix', pd.DataFrame()), use_container_width=True)
 

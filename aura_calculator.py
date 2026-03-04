@@ -39,10 +39,16 @@ def calculate_aura(data: pd.DataFrame, weights: dict, directions: dict, alpha: f
             normalized_df[col] = 1.0
             continue
             
-        if directions.get(col, 'maximize') == 'maximize':
-            normalized_df[col] = (df[col] - min_val) / max((max_val - min_val), 1e-9)
-        else:
-            normalized_df[col] = (max_val - df[col]) / max((max_val - min_val), 1e-9)
+        direction_info = directions.get(col, 'maximize')
+        
+        if isinstance(direction_info, dict) and direction_info.get("type") == "target":
+            r_j = direction_info.get("value", max_val)
+        elif direction_info == 'maximize':
+            r_j = max_val
+        else: # minimize
+            r_j = min_val
+            
+        normalized_df[col] = 1.0 - (abs(df[col] - r_j) / max((max_val - min_val), 1e-9))
 
     steps['Step 1: Normalized Decision Matrix'] = normalized_df.copy()
 
