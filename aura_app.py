@@ -8,6 +8,7 @@ from fuzzy_aras_calculator import calculate_fuzzy_aras
 from syai_calculator import calculate_syai
 from arie_calculator import calculate_arie
 from moora_calculator import calculate_moora
+from topsis_calculator import calculate_topsis
 from fuzzy_parser import parse_fuzzy_matrix, parse_fuzzy_weights
 import numpy as np
 from entropy_calculator import calculate_entropy_weights
@@ -31,6 +32,7 @@ This application implements six highly effective MCDM methods:
 - **SYAI** (Simplified Yielded Aggregation Index)
 - **ARIE** (Adaptive Ranking with Ideal Evaluation)
 - **MOORA** (Multi-Objective Optimization on the basis of Ratio Analysis)
+- **TOPSIS** (Technique for Order Preference by Similarity to Ideal Solution)
 
 ### Instructions:
 """)
@@ -41,7 +43,7 @@ st.sidebar.title("Configuration")
 st.sidebar.subheader("Method Selection")
 mcdm_method = st.sidebar.selectbox(
     "Choose MCDM Method", 
-    ["AURA", "ARAS", "Fuzzy ARAS", "SYAI", "ARIE", "MOORA"]
+    ["AURA", "ARAS", "Fuzzy ARAS", "SYAI", "ARIE", "MOORA", "TOPSIS"]
 )
 
 weight_type = None
@@ -450,6 +452,8 @@ else:
                             res_df, steps = calculate_arie(matrix_to_calc, weights, directions, gamma, kappa, return_steps=True)
                         elif mcdm_method == "MOORA":
                             res_df, steps = calculate_moora(matrix_to_calc, weights, directions, return_steps=True)
+                        elif mcdm_method == "TOPSIS":
+                            res_df, steps = calculate_topsis(matrix_to_calc, weights, directions, return_steps=True)
                         else:
                             res_df, steps = calculate_fuzzy_aras(matrix_to_calc, weights, directions, return_steps=True)
                         
@@ -495,6 +499,11 @@ else:
                     score_col = 'y_i (Assessment Value)'
                     sort_ascending = False 
                     unit = "Assessment"
+                elif mcdm_method == "TOPSIS":
+                    cols_to_format = ['D+ (Ideal)', 'D- (Anti-Ideal)', 'Relative Closeness (C_i)']
+                    score_col = 'Relative Closeness (C_i)'
+                    sort_ascending = False 
+                    unit = "Closeness"
                 else:
                     cols_to_format = ['S_i (Crisp)', 'K_i (Utility Degree)']
                     score_col = 'K_i (Utility Degree)'
@@ -893,6 +902,53 @@ else:
                                 st.dataframe(steps_dict['Step 5: Final Result and Ranking'][['Rank', 'y_i (Assessment Value)']], use_container_width=True)
                             except KeyError: pass
 
+                elif mcdm_method == "TOPSIS":
+                    with st.expander("Step 1: Normalized Decision Matrix", expanded=False):
+                        st.markdown(r'''
+                        **Formula (Vector Normalization):**
+                        $$r_{ij} = \frac{x_{ij}}{\sqrt{\sum_{i=1}^m x_{ij}^2}}$$
+                        ''')
+                        st.dataframe(steps_dict.get('Step 2: Normalized Decision Matrix ($r_{ij}$)', pd.DataFrame()), use_container_width=True)
+
+                    with st.expander("Step 2: Weighted Normalized Matrix", expanded=False):
+                        st.markdown(r'''
+                        **Formula:** 
+                        $$v_{ij} = r_{ij} \times w_j$$
+                        ''')
+                        st.dataframe(steps_dict.get('Step 3: Weighted Normalized Matrix ($v_{ij}$)', pd.DataFrame()), use_container_width=True)
+
+                    with st.expander("Step 3: Ideal and Anti-Ideal Solutions", expanded=False):
+                        st.markdown(r'''
+                        **Formulas:**
+                        - **PIS ($A^+$):** $\max v_{ij}$ for beneficial criteria, $\min v_{ij}$ for non-beneficial.
+                        - **NIS ($A^-$):** $\min v_{ij}$ for beneficial criteria, $\max v_{ij}$ for non-beneficial.
+                        ''')
+                        st.dataframe(steps_dict.get('Step 4: Ideal and Anti-Ideal Solutions', pd.DataFrame()), use_container_width=True)
+
+                    with st.expander("Step 4: Separation Measures", expanded=False):
+                        st.markdown(r'''
+                        **Formulas (Euclidean Distance):**
+                        - **Distance to PIS ($D^+_i$):** $\sqrt{\sum_j (v_{ij} - A^+_j)^2}$
+                        - **Distance to NIS ($D^-_i$):** $\sqrt{\sum_j (v_{ij} - A^-_j)^2}$
+                        ''')
+                        st.dataframe(steps_dict.get('Step 5: Separation Measures', pd.DataFrame()), use_container_width=True)
+
+                    with st.expander("Step 5: Relative Closeness & Ranking", expanded=False):
+                        st.markdown(r'''
+                        **Formula:**
+                        $$C_i = \frac{D^-_i}{D^+_i + D^-_i}$$
+                        *(Higher $C_i$ score is better)*
+                        ''')
+                        c1, c2 = st.columns([1, 1])
+                        with c1:
+                            st.markdown("**Relative Closeness ($C_i$):**")
+                            st.dataframe(steps_dict.get('Step 6: Relative Closeness', pd.DataFrame()), use_container_width=True)
+                        with c2:
+                            st.markdown("**Final Result and Ranking:**")
+                            try:
+                                st.dataframe(steps_dict['Step 7: Final Result and Ranking'][['Rank', 'Relative Closeness (C_i)']], use_container_width=True)
+                            except KeyError: pass
+
                 elif mcdm_method == "Fuzzy ARAS":
                     with st.expander("Step 0: Fuzzy Weights", expanded=False):
                         st.markdown("**Weights converted to Triangular Fuzzy Numbers:**")
@@ -1003,6 +1059,9 @@ else:
                                 elif mcdm_method == "MOORA":
                                     temp_res = calculate_moora(matrix_to_calc, new_weights, directions)
                                     score_col_sens = 'y_i (Assessment Value)'
+                                elif mcdm_method == "TOPSIS":
+                                    temp_res = calculate_topsis(matrix_to_calc, new_weights, directions)
+                                    score_col_sens = 'Relative Closeness (C_i)'
                                 else: 
                                     temp_res, _ = calculate_fuzzy_aras(matrix_to_calc, new_weights, directions, return_steps=True)
                                     score_col_sens = 'K_i (Utility Degree)'
@@ -1119,7 +1178,7 @@ else:
                 st.subheader("⚖️ Comparative Analysis")
                 st.markdown("Select multiple MCDM methods below to compare their final rankings side-by-side using the current matrix and criteria weights.")
                 
-                compare_methods = st.multiselect("Select Methods to Compare", ["AURA", "ARAS", "SYAI", "ARIE", "MOORA"], default=["AURA", "ARAS", "SYAI", "ARIE", "MOORA"])
+                compare_methods = st.multiselect("Select Methods to Compare", ["AURA", "ARAS", "SYAI", "ARIE", "MOORA", "TOPSIS"], default=["AURA", "ARAS", "SYAI", "ARIE", "MOORA", "TOPSIS"])
                 
                 if compare_methods:
                     compare_results = {}
@@ -1144,6 +1203,10 @@ else:
                             elif meth == "MOORA":
                                 temp_res = calculate_moora(matrix_to_calc, weights, directions)
                                 score_col = 'y_i (Assessment Value)'
+                                sort_asc = False
+                            elif meth == "TOPSIS":
+                                temp_res = calculate_topsis(matrix_to_calc, weights, directions)
+                                score_col = 'Relative Closeness (C_i)'
                                 sort_asc = False
                             
                             # Calculate ranks: ascending=sort_asc
@@ -1188,10 +1251,12 @@ else:
                             comp_df_reset.rename(columns={comp_df_reset.columns[0]: 'Alternative'}, inplace=True)
                         comp_melted = comp_df_reset.melt(id_vars='Alternative', var_name='Method', value_name='Rank')
                         
+                        unique_alts_comp = sorted(comp_melted['Alternative'].unique(), key=natural_sort_key)
+                        
                         chart = alt.Chart(comp_melted).mark_line(point=alt.OverlayMarkDef(filled=False, fill="white", size=100)).encode(
                             x=alt.X('Method:N', title='MCDM Method', sort=compare_methods),
                             y=alt.Y('Rank:O', title='Rank', sort='descending'),
-                            color=alt.Color('Alternative:N', legend=alt.Legend(title="Alternatives", orient='right')),
+                            color=alt.Color('Alternative:N', sort=unique_alts_comp, legend=alt.Legend(title="Alternatives", orient='right')),
                             tooltip=['Alternative', 'Method', 'Rank']
                         ).properties(height=400, title="Alternative Ranking Shifts Across Methods").interactive()
                         
