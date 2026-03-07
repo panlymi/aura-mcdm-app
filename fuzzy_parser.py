@@ -31,7 +31,9 @@ def parse_tfn_string(val):
         # Strip common brackets and parenthesis that a user might intuitively type
         clean_val = str(val).strip(' ()[]{}')
         parts = [float(x.strip()) for x in clean_val.split(',')]
-        if len(parts) == 3:
+        if len(parts) == 4:
+            return tuple(parts)
+        elif len(parts) == 3:
             return tuple(parts)
         elif len(parts) == 1:
             return (parts[0], parts[0], parts[0])
@@ -62,7 +64,7 @@ def parse_fuzzy_matrix(df: pd.DataFrame, method: str):
                 if tfn is not None:
                     parsed_df.at[idx, col] = tfn
                 else:
-                    st.error(f"Invalid TFN format '{val}' at row '{idx}', column '{col}'. Expected like '1, 2, 3'.")
+                    st.error(f"Invalid Fuzzy Number format '{val}' at row '{idx}', column '{col}'. Expected 3 values like '1, 2, 3' or 4 values like '1, 2, 3, 4'.")
                     return None
                     
     return parsed_df
@@ -83,6 +85,6 @@ def parse_fuzzy_weights(weights: dict, method: str):
             if tfn is not None:
                 parsed_weights[col] = tfn
             else:
-                st.error(f"Invalid TFN weight '{val}' for criterion '{col}'.")
+                st.error(f"Invalid Fuzzy Number weight '{val}' for criterion '{col}'.")
                 return None
     return parsed_weights
