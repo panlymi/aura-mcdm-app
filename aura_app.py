@@ -9,6 +9,8 @@ from syai_calculator import calculate_syai
 from arie_calculator import calculate_arie
 from moora_calculator import calculate_moora
 from topsis_calculator import calculate_topsis
+from saw_calculator import calculate_saw
+from vikor_calculator import calculate_vikor
 from fuzzy_parser import parse_fuzzy_matrix, parse_fuzzy_weights
 import numpy as np
 from entropy_calculator import calculate_entropy_weights
@@ -33,6 +35,8 @@ This application implements six highly effective MCDM methods:
 - **ARIE** (Adaptive Ranking with Ideal Evaluation)
 - **MOORA** (Multi-Objective Optimization on the basis of Ratio Analysis)
 - **TOPSIS** (Technique for Order Preference by Similarity to Ideal Solution)
+- **SAW** (Simple Additive Weighting)
+- **VIKOR** (VlseKriterijumska Optimizacija I Kompromisno Resenje)
 
 ### Instructions:
 """)
@@ -43,7 +47,7 @@ st.sidebar.title("Configuration")
 st.sidebar.subheader("Method Selection")
 mcdm_method = st.sidebar.selectbox(
     "Choose MCDM Method", 
-    ["AURA", "ARAS", "Fuzzy ARAS", "SYAI", "ARIE", "MOORA", "TOPSIS"]
+    ["AURA", "ARAS", "Fuzzy ARAS", "SYAI", "ARIE", "MOORA", "TOPSIS", "SAW", "VIKOR"]
 )
 
 weight_type = None
@@ -63,6 +67,7 @@ p_metric = 1
 beta = 0.5
 gamma = 1.0
 kappa = 0.5
+v_param = 0.5
 
 # Method specific parameters in sidebar
 if mcdm_method == "AURA":
@@ -96,6 +101,13 @@ elif mcdm_method == "ARIE":
         "Balancing Parameter (κ)",
         min_value=0.0, max_value=1.0, value=0.5, step=0.05,
         help="Trades-off importance between being close to ideal (κ > 0.5) and far from worst (κ < 0.5)."
+    )
+elif mcdm_method == "VIKOR":
+    st.sidebar.subheader("VIKOR Parameters")
+    v_param = st.sidebar.slider(
+        "Weight of strategy of 'majority of criteria' (v)",
+        min_value=0.0, max_value=1.0, value=0.5, step=0.05,
+        help="v > 0.5: voting by majority. v = 0.5: consensus. v < 0.5: veto."
     )
 
 st.sidebar.markdown("---")
@@ -454,6 +466,10 @@ else:
                             res_df, steps = calculate_moora(matrix_to_calc, weights, directions, return_steps=True)
                         elif mcdm_method == "TOPSIS":
                             res_df, steps = calculate_topsis(matrix_to_calc, weights, directions, return_steps=True)
+                        elif mcdm_method == "SAW":
+                            res_df, steps = calculate_saw(matrix_to_calc, weights, directions, return_steps=True)
+                        elif mcdm_method == "VIKOR":
+                            res_df, steps = calculate_vikor(matrix_to_calc, weights, directions, v_param, return_steps=True)
                         else:
                             res_df, steps = calculate_fuzzy_aras(matrix_to_calc, weights, directions, return_steps=True)
                         
@@ -504,6 +520,16 @@ else:
                     score_col = 'Relative Closeness (C_i)'
                     sort_ascending = False 
                     unit = "Closeness"
+                elif mcdm_method == "SAW":
+                    cols_to_format = ['V_i (SAW Score)']
+                    score_col = 'V_i (SAW Score)'
+                    sort_ascending = False
+                    unit = "Score"
+                elif mcdm_method == "VIKOR":
+                    cols_to_format = ['S_i (Utility)', 'R_i (Regret)', 'Q_i (VIKOR Index)']
+                    score_col = 'Q_i (VIKOR Index)'
+                    sort_ascending = True
+                    unit = "Index"
                 else:
                     cols_to_format = ['S_i (Crisp)', 'K_i (Utility Degree)']
                     score_col = 'K_i (Utility Degree)'
@@ -953,6 +979,78 @@ else:
                                 st.dataframe(steps_dict['Step 7: Final Result and Ranking'][['Rank', 'Relative Closeness (C_i)']], use_container_width=True)
                             except KeyError: pass
 
+                elif mcdm_method == "SAW":
+                    with st.expander("Step 1: Normalized Decision Matrix", expanded=False):
+                        st.markdown(r'''
+                        **Normalization Formulas:**
+                        - **Beneficial (Maximize):** $r_{ij} = \frac{x_{ij}}{x_j^{max}}$
+                        - **Non-Beneficial (Minimize):** $r_{ij} = \frac{x_j^{min}}{x_{ij}}$
+                        ''')
+                        st.dataframe(steps_dict.get('Step 2: Normalized Decision Matrix', pd.DataFrame()), use_container_width=True)
+
+                    with st.expander("Step 2: Weighted Normalized Matrix", expanded=False):
+                        st.markdown(r'''
+                        **Formula:** 
+                        $$v_{ij} = r_{ij} \times w_j$$
+                        ''')
+                        st.dataframe(steps_dict.get('Step 3: Weighted Normalized Matrix', pd.DataFrame()), use_container_width=True)
+
+                    with st.expander("Step 3: Final Score & Ranking", expanded=False):
+                        st.markdown(r'''
+                        **Formula:**
+                        $$V_i = \sum_{j=1}^{n} v_{ij}$$
+                        *(Higher $V_i$ score is better)*
+                        ''')
+                        c1, c2 = st.columns([1, 1])
+                        with c1:
+                            st.markdown("**Final Result and Ranking:**")
+                            try:
+                                st.dataframe(steps_dict['Step 4: Final Result and Ranking'][['Rank', 'V_i (SAW Score)']], use_container_width=True)
+                            except KeyError: pass
+
+                elif mcdm_method == "VIKOR":
+                    with st.expander("Step 1: Best (f*) and Worst (f-) Values", expanded=False):
+                        st.markdown(r'''
+                        **Determining Ideal/Anti-Ideal values:**
+                        - For Benefit Criteria (Maximize): $f_j^* = \max x_{ij}$ ; $f_j^- = \min x_{ij}$
+                        - For Cost Criteria (Minimize):    $f_j^* = \min x_{ij}$ ; $f_j^- = \max x_{ij}$
+                        ''')
+                        st.dataframe(steps_dict.get('Step 2: Best (f*) and Worst (f-) Values', pd.DataFrame()), use_container_width=True)
+
+                    with st.expander("Step 2: Utility ($S_i$) and Regret ($R_i$) Measures", expanded=False):
+                        st.markdown(r'''
+                        **Weighted Normalized Distance:** 
+                        - Benefit: $w_j \times \frac{f_j^* - x_{ij}}{f_j^* - f_j^-}$
+                        - Cost:    $w_j \times \frac{x_{ij} - f_j^*}{f_j^- - f_j^*}$ = $w_j \times \frac{f_j^* - x_{ij}}{f_j^* - f_j^-}$ (equivalent form in code)
+                        ''')
+                        st.dataframe(steps_dict.get('Step 3: Weighted Normalized Distance Matrix', pd.DataFrame()), use_container_width=True)
+                        st.markdown(r'''
+                        **Formulas:**
+                        - **Utility ($S_i$):** $S_i = \sum_{j=1}^n w_j \frac{f_j^* - x_{ij}}{f_j^* - f_j^-}$
+                        - **Regret ($R_i$):** $R_i = \max_j \left[w_j \frac{f_j^* - x_{ij}}{f_j^* - f_j^-}\right]$
+                        ''')
+                        st.dataframe(steps_dict.get('Step 4: Utility (S_i) and Regret (R_i) Measures', pd.DataFrame()), use_container_width=True)
+
+                    with st.expander("Step 3: VIKOR Index ($Q_i$) & Ranking", expanded=False):
+                        st.markdown(r'''
+                        **Boundary values:**
+                        $S^* = \min S_i$, $S^- = \max S_i$
+                        $R^* = \min R_i$, $R^- = \max R_i$
+                        ''')
+                        st.json(steps_dict.get('Step 5: VIKOR Index (Q_i) Parameters', {}))
+                        
+                        st.markdown(r'''
+                        **Formula:**
+                        $$Q_i = v \frac{S_i - S^*}{S^- - S^*} + (1 - v) \frac{R_i - R^*}{R^- - R^*}$$
+                        *(Smaller $Q_i$ score is better)*
+                        ''')
+                        c1, c2 = st.columns([1, 1])
+                        with c1:
+                            st.markdown("**Final Result and Ranking:**")
+                            try:
+                                st.dataframe(steps_dict['Step 6: Final Result and Ranking'][['Rank', 'Q_i (VIKOR Index)']], use_container_width=True)
+                            except KeyError: pass
+
                 elif mcdm_method == "Fuzzy ARAS":
                     with st.expander("Step 0: Fuzzy Weights", expanded=False):
                         st.markdown("**Weights converted to Triangular Fuzzy Numbers:**")
@@ -1066,6 +1164,12 @@ else:
                                 elif mcdm_method == "TOPSIS":
                                     temp_res = calculate_topsis(matrix_to_calc, new_weights, directions)
                                     score_col_sens = 'Relative Closeness (C_i)'
+                                elif mcdm_method == "SAW":
+                                    temp_res = calculate_saw(matrix_to_calc, new_weights, directions)
+                                    score_col_sens = 'V_i (SAW Score)'
+                                elif mcdm_method == "VIKOR":
+                                    temp_res = calculate_vikor(matrix_to_calc, new_weights, directions, v_param)
+                                    score_col_sens = 'Q_i (VIKOR Index)'
                                 else: 
                                     temp_res, _ = calculate_fuzzy_aras(matrix_to_calc, new_weights, directions, return_steps=True)
                                     score_col_sens = 'K_i (Utility Degree)'
@@ -1099,7 +1203,7 @@ else:
                         st.info("Weight Sensitivity Analysis requires at least 2 criteria.")
                         
                 # 2. Parameter Sensitivity Analysis
-                if mcdm_method in ["AURA", "SYAI", "ARIE"]:
+                if mcdm_method in ["AURA", "SYAI", "ARIE", "VIKOR"]:
                     st.markdown("---")
                     st.markdown(f"### ⚙️ {mcdm_method} Parameter Sensitivity")
                     
@@ -1137,6 +1241,18 @@ else:
                         for p_val in param_range:
                             try:
                                 temp_res = calculate_arie(matrix_to_calc, base_weights, directions, p_val, kappa)
+                                for alt_idx in temp_res.index:
+                                    param_results.append({'Parameter': p_val, 'Alternative': alt_idx, 'Score': temp_res.loc[alt_idx, score_col_sens]})
+                            except Exception: pass
+                            
+                    elif mcdm_method == "VIKOR":
+                        st.markdown("**Varying Weight Parameter (v) from 0.0 (Veto) to 1.0 (Majority Voting):**")
+                        param_range = np.linspace(0.0, 1.0, 11)
+                        param_name = "v (Majority Weight)"
+                        score_col_sens = 'Q_i (VIKOR Index)'
+                        for p_val in param_range:
+                            try:
+                                temp_res = calculate_vikor(matrix_to_calc, base_weights, directions, p_val)
                                 for alt_idx in temp_res.index:
                                     param_results.append({'Parameter': p_val, 'Alternative': alt_idx, 'Score': temp_res.loc[alt_idx, score_col_sens]})
                             except Exception: pass
@@ -1182,7 +1298,7 @@ else:
                 st.subheader("⚖️ Comparative Analysis")
                 st.markdown("Select multiple MCDM methods below to compare their final rankings side-by-side using the current matrix and criteria weights.")
                 
-                compare_methods = st.multiselect("Select Methods to Compare", ["AURA", "ARAS", "SYAI", "ARIE", "MOORA", "TOPSIS"], default=["AURA", "ARAS", "SYAI", "ARIE", "MOORA", "TOPSIS"])
+                compare_methods = st.multiselect("Select Methods to Compare", ["AURA", "ARAS", "SYAI", "ARIE", "MOORA", "TOPSIS", "SAW"], default=["AURA", "ARAS", "SYAI", "ARIE", "MOORA", "TOPSIS", "SAW"])
                 
                 if compare_methods:
                     compare_results = {}
@@ -1212,6 +1328,14 @@ else:
                                 temp_res = calculate_topsis(matrix_to_calc, weights, directions)
                                 score_col = 'Relative Closeness (C_i)'
                                 sort_asc = False
+                            elif meth == "SAW":
+                                temp_res = calculate_saw(matrix_to_calc, weights, directions)
+                                score_col = 'V_i (SAW Score)'
+                                sort_asc = False
+                            elif meth == "VIKOR":
+                                temp_res = calculate_vikor(matrix_to_calc, weights, directions, v_param)
+                                score_col = 'Q_i (VIKOR Index)'
+                                sort_asc = True
                             
                             # Calculate ranks: ascending=sort_asc
                             temp_res['Rank'] = temp_res[score_col].rank(ascending=sort_asc, method='min').astype(int)

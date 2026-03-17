@@ -1,0 +1,4 @@
+Loaded dataset with 15 alternatives.
+--- Monte Carlo Results (10,000 Iterations) ---
+Average Spearman Correlation (r_s): 0.7612
+Probability of Selangor (index=0) retaining Rank 1: 29.87%

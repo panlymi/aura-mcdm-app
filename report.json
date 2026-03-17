@@ -1,0 +1,156 @@
+{
+    "average_spearman": 0.7612278571428571,
+    "iterations": 10000,
+    "metrics": [
+        {
+            "Alternative": "A10: Selangor",
+            "Baseline_Rank": 1,
+            "Mean_Rank": 3.788,
+            "Rank_SD": 3.373255993843337,
+            "Min_Rank": 1,
+            "Max_Rank": 14,
+            "Top_5_Freq_Pct": 80.49,
+            "Bottom_3_Freq_Pct": 3.4000000000000004
+        },
+        {
+            "Alternative": "A14: W.P. Kuala Lumpur",
+            "Baseline_Rank": 2,
+            "Mean_Rank": 4.6234,
+            "Rank_SD": 2.938328170916244,
+            "Min_Rank": 1,
+            "Max_Rank": 13,
+            "Top_5_Freq_Pct": 66.62,
+            "Bottom_3_Freq_Pct": 0.72
+        },
+        {
+            "Alternative": "A1: Johor",
+            "Baseline_Rank": 3,
+            "Mean_Rank": 5.1921,
+            "Rank_SD": 1.7918140500621151,
+            "Min_Rank": 2,
+            "Max_Rank": 10,
+            "Top_5_Freq_Pct": 65.89,
+            "Bottom_3_Freq_Pct": 0.0
+        },
+        {
+            "Alternative": "A7: Pulau Pinang",
+            "Baseline_Rank": 4,
+            "Mean_Rank": 3.373,
+            "Rank_SD": 1.9894901356880361,
+            "Min_Rank": 1,
+            "Max_Rank": 12,
+            "Top_5_Freq_Pct": 82.27,
+            "Bottom_3_Freq_Pct": 0.0
+        },
+        {
+            "Alternative": "A15: W.P. Labuan",
+            "Baseline_Rank": 5,
+            "Mean_Rank": 6.5546,
+            "Rank_SD": 4.166343581607259,
+            "Min_Rank": 1,
+            "Max_Rank": 15,
+            "Top_5_Freq_Pct": 46.9,
+            "Bottom_3_Freq_Pct": 15.4
+        },
+        {
+            "Alternative": "A4: Melaka",
+            "Baseline_Rank": 6,
+            "Mean_Rank": 8.3584,
+            "Rank_SD": 2.1134212642064525,
+            "Min_Rank": 4,
+            "Max_Rank": 13,
+            "Top_5_Freq_Pct": 2.06,
+            "Bottom_3_Freq_Pct": 1.9
+        },
+        {
+            "Alternative": "A6: Pahang",
+            "Baseline_Rank": 7,
+            "Mean_Rank": 4.638,
+            "Rank_SD": 3.3441525084840253,
+            "Min_Rank": 1,
+            "Max_Rank": 13,
+            "Top_5_Freq_Pct": 65.14,
+            "Bottom_3_Freq_Pct": 1.1900000000000002
+        },
+        {
+            "Alternative": "A11: Terengganu",
+            "Baseline_Rank": 8,
+            "Mean_Rank": 5.4986,
+            "Rank_SD": 2.632792821321116,
+            "Min_Rank": 1,
+            "Max_Rank": 11,
+            "Top_5_Freq_Pct": 48.64,
+            "Bottom_3_Freq_Pct": 0.0
+        },
+        {
+            "Alternative": "A9: Perlis",
+            "Baseline_Rank": 9,
+            "Mean_Rank": 6.5689,
+            "Rank_SD": 2.2451398152453668,
+            "Min_Rank": 1,
+            "Max_Rank": 12,
+            "Top_5_Freq_Pct": 34.94,
+            "Bottom_3_Freq_Pct": 0.0
+        },
+        {
+            "Alternative": "A5: Negeri Sembilan",
+            "Baseline_Rank": 10,
+            "Mean_Rank": 9.7679,
+            "Rank_SD": 1.4945332348261782,
+            "Min_Rank": 5,
+            "Max_Rank": 12,
+            "Top_5_Freq_Pct": 0.8099999999999999,
+            "Bottom_3_Freq_Pct": 0.0
+        },
+        {
+            "Alternative": "A2: Kedah",
+            "Baseline_Rank": 11,
+            "Mean_Rank": 9.8915,
+            "Rank_SD": 2.0249266036081406,
+            "Min_Rank": 4,
+            "Max_Rank": 14,
+            "Top_5_Freq_Pct": 1.91,
+            "Bottom_3_Freq_Pct": 0.91
+        },
+        {
+            "Alternative": "A8: Perak",
+            "Baseline_Rank": 12,
+            "Mean_Rank": 10.4112,
+            "Rank_SD": 1.9819471637760682,
+            "Min_Rank": 4,
+            "Max_Rank": 14,
+            "Top_5_Freq_Pct": 4.33,
+            "Bottom_3_Freq_Pct": 4.64
+        },
+        {
+            "Alternative": "A13: Sarawak",
+            "Baseline_Rank": 13,
+            "Mean_Rank": 12.4683,
+            "Rank_SD": 1.134986832522739,
+            "Min_Rank": 8,
+            "Max_Rank": 13,
+            "Top_5_Freq_Pct": 0.0,
+            "Bottom_3_Freq_Pct": 74.18
+        },
+        {
+            "Alternative": "A3: Kelantan",
+            "Baseline_Rank": 14,
+            "Mean_Rank": 13.9569,
+            "Rank_SD": 0.47163798617159747,
+            "Min_Rank": 12,
+            "Max_Rank": 15,
+            "Top_5_Freq_Pct": 0.0,
+            "Bottom_3_Freq_Pct": 97.78999999999999
+        },
+        {
+            "Alternative": "A12: Sabah",
+            "Baseline_Rank": 15,
+            "Mean_Rank": 14.9092,
+            "Rank_SD": 0.3152068527173862,
+            "Min_Rank": 12,
+            "Max_Rank": 15,
+            "Top_5_Freq_Pct": 0.0,
+            "Bottom_3_Freq_Pct": 99.87
+        }
+    ]
+}
