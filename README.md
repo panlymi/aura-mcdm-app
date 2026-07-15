@@ -3,7 +3,7 @@
 A transparent Streamlit decision-support application for AURA and established
 multi-criteria decision-making methods. It supports interactive decision-matrix
 editing, manual or objective criterion weights, detailed calculation steps,
-sensitivity analysis, an interactive AURA Monte Carlo workflow, and
+sensitivity analysis, an interactive non-fuzzy Monte Carlo workflow, and
 capability-aware cross-method comparison.
 
 ## Supported methods
@@ -38,7 +38,7 @@ an adapted weighting method.
 - `mcdm/state.py` — deterministic input fingerprints used to invalidate stale results.
 - `mcdm/uploads.py` — bounded, fingerprinted CSV/XLSX parsing for the public app.
 - `mcdm/presentation.py` — result-column and score-direction metadata.
-- `mcdm/research.py` — canonical AURA Monte Carlo and reporting utilities.
+- `mcdm/research.py` — vectorized Monte Carlo and research-reporting utilities.
 - `*_calculator.py` — each method's published mathematical procedure.
 
 The shared layer standardizes validation and preference meaning. It does **not**
@@ -97,8 +97,10 @@ Rules enforced by the application:
 
 ## Monte Carlo simulation in Streamlit
 
-After running an AURA baseline calculation, open the **Monte Carlo Simulation**
-tab. Two reproducible weight-sampling modes are available:
+After running any non-fuzzy method's baseline calculation, open the **Monte
+Carlo Simulation** tab. AURA, ARAS, SYAI, ARIE, MOORA, TOPSIS, SAW, and VIKOR
+are supported. Fuzzy ARAS is excluded because fuzzy-weight uncertainty requires
+a separate sampling model. Two reproducible weight-sampling modes are available:
 
 - **Global robustness** samples the complete weight simplex using
   `Dirichlet(1, ..., 1)`, matching the research simulation.
@@ -111,10 +113,13 @@ probabilities, raw simulated ranks, and sampled weights can all be downloaded as
 CSV files. Raw tables are materialized only when their downloads are requested.
 The random seed, iteration count, sampling mode, and local concentration are
 recorded and fingerprinted for reproducibility; changed controls are marked stale
-until the simulation is rerun. Interactive workloads are capped at 10,000,000
-iteration-alternative-criterion operations and processed in chunks of 500.
-The interactive workflow currently applies only to AURA because it calls the
-canonical AURA simulation kernel.
+until the simulation is rerun. Runs can contain up to 20,000 simulations.
+Interactive workloads remain capped at 10,000,000
+iteration-alternative-criterion operations, so 20,000 simulations are available
+when `alternatives × criteria <= 500`; larger matrices must use fewer
+simulations. Vectorized method-specific kernels process work in chunks of at
+most 500 while retaining each method's own score orientation, parameters,
+criterion capabilities, tie handling, and seeded results.
 
 Sensitivity analysis and cross-method comparison run only when their explicit
 Run buttons are selected. Their results persist across ordinary Streamlit widget
@@ -130,9 +135,11 @@ uv run --locked --all-extras ruff check .
 The suite covers golden benchmark outputs, dominant alternatives, target
 capabilities, weight-scale invariance, ties, invalid reciprocal inputs, fuzzy
 shape validation, calculation fingerprints, and agreement between the app and
-research AURA paths, including global/local Monte Carlo sampling and rank
-acceptability probabilities. CI installs exclusively from `uv.lock`, verifies the
-exported runtime `requirements.txt`, and runs on Python 3.11, 3.12, and 3.13.
+research paths. Monte Carlo regression cases compare all eight non-fuzzy batch
+kernels with their scalar calculators, including global/local sampling, native
+targets, ties, and rank-acceptability probabilities. CI installs exclusively
+from `uv.lock`, verifies the exported runtime `requirements.txt`, and runs on
+Python 3.11, 3.12, and 3.13.
 
 ## Reproducing the research outputs
 
@@ -147,9 +154,11 @@ uv run --locked --extra research python generate_paper_figures.py
 uv run --locked --extra research python monte_carlo_scenarios.py --iterations 10000 --seed 42
 ```
 
-The Streamlit app and simulations call the same AURA normalization and scoring
-kernel. Monte Carlo criterion counts are derived from the matrix instead of
-being fixed at five, and ties use competition ranking consistently.
+The Streamlit app and AURA simulations call the same AURA normalization and
+scoring kernel. The other non-fuzzy methods use vectorized equivalents verified
+against their public calculators. Monte Carlo criterion counts are derived from
+the matrix instead of being fixed at five, and ties use competition ranking
+consistently.
 
 Generated Excel reports, JSON summaries, and PNG figures are intentionally not
 stored in the repository. The commands above recreate them locally from the

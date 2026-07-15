@@ -28,6 +28,7 @@ DERIVED_STATE_DEFAULTS: dict[str, Any] = {
     "comparison_fingerprint": None,
     "monte_carlo_result": None,
     "monte_carlo_fingerprint": None,
+    "prepare_mc_raw_downloads": False,
 }
 
 

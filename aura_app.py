@@ -10,12 +10,12 @@ from mcdm.criteria import CriterionType, METHOD_CAPABILITIES
 from mcdm.presentation import RESULT_PRESENTATION
 from mcdm.ranking import natural_sort_key
 from mcdm.research import (
+    MAX_MONTE_CARLO_ITERATIONS,
     MAX_MONTE_CARLO_WORKLOAD,
     generate_dirichlet_weights,
     rank_acceptability_table,
-    simulate_aura_weights,
+    simulate_method_weights,
     summarize_rank_simulation,
-    types_and_targets_from_directions,
     validate_monte_carlo_workload,
 )
 from mcdm.state import analysis_fingerprint, calculation_fingerprint, reset_derived_state
@@ -1528,32 +1528,37 @@ else:
 
         # --- MONTE CARLO SIMULATION TAB ---
         with tab_monte_carlo:
-            if mcdm_method != "AURA":
+            if mcdm_method == "Fuzzy ARAS":
                 st.info(
-                    "The canonical Monte Carlo workflow is currently available for AURA. "
-                    "Select AURA and run the baseline calculation to use it."
+                    "Monte Carlo rank robustness is available for all non-fuzzy "
+                    "methods. Fuzzy ARAS is excluded because its fuzzy-weight "
+                    "uncertainty requires a different sampling model."
                 )
             elif not st.session_state.calculated:
                 st.info(
-                    "Run the AURA baseline calculation in the Setup tab before starting "
-                    "a Monte Carlo simulation."
+                    f"Run the {mcdm_method} baseline calculation in the Setup tab "
+                    "before starting a Monte Carlo simulation."
                 )
             else:
-                st.subheader("AURA Monte Carlo Rank Robustness")
+                st.subheader(f"{mcdm_method} Monte Carlo Rank Robustness")
                 st.markdown(
-                    "Randomly sample criterion-weight combinations and recalculate AURA "
-                    "to estimate how stable the baseline ranking is. The decision matrix, "
-                    "criterion directions, targets, alpha, and distance metric remain fixed."
+                    "Randomly sample criterion-weight combinations and recalculate "
+                    f"{mcdm_method} to estimate how stable the baseline ranking is. "
+                    "Only criterion weights vary; the decision matrix, directions, "
+                    "targets, and method parameters remain fixed."
                 )
 
                 control_col1, control_col2, control_col3 = st.columns(3)
                 with control_col1:
                     mc_iterations = st.selectbox(
                         "Iterations",
-                        options=[250, 1_000, 5_000, 10_000],
+                        options=[250, 1_000, 5_000, 10_000, MAX_MONTE_CARLO_ITERATIONS],
                         index=1,
                         key="mc_iterations",
-                        help="Larger runs give smoother estimates but take longer.",
+                        help=(
+                            "Larger runs give smoother estimates but take longer. "
+                            "The workload ceiling may limit large decision matrices."
+                        ),
                     )
                 with control_col2:
                     mc_seed = st.number_input(
@@ -1622,6 +1627,7 @@ else:
                 )
 
                 mc_controls = {
+                    "method": mcdm_method.upper(),
                     "iterations": int(mc_iterations),
                     "seed": int(mc_seed),
                     "sampling_mode": mc_mode,
@@ -1655,8 +1661,8 @@ else:
                             matrix_to_calc.shape[1],
                         )
                         with st.spinner(
-                            f"Running {mc_iterations:,} AURA simulations with seed "
-                            f"{mc_seed}..."
+                            f"Running {mc_iterations:,} {mcdm_method} simulations "
+                            f"with seed {mc_seed}..."
                         ):
                             baseline_result = st.session_state.results_df.reindex(
                                 matrix_to_calc.index
@@ -1670,12 +1676,6 @@ else:
                             criterion_names = [
                                 str(value) for value in matrix_to_calc.columns
                             ]
-                            criteria_types, target_values = (
-                                types_and_targets_from_directions(
-                                    matrix_to_calc.columns.tolist(), directions
-                                )
-                            )
-
                             center_weights = (
                                 current_weight_values if is_local_sampling else None
                             )
@@ -1701,13 +1701,12 @@ else:
                                 )
 
                             try:
-                                rank_matrix, correlations = simulate_aura_weights(
+                                rank_matrix, correlations = simulate_method_weights(
+                                    mcdm_method,
                                     matrix_to_calc,
                                     sampled_weights,
-                                    criteria_types,
-                                    target_val=target_values,
-                                    alpha=float(parameters["alpha"]),
-                                    p=int(parameters["p"]),
+                                    directions,
+                                    parameters=parameters,
                                     baseline_ranks=baseline_ranks,
                                     chunk_size=500,
                                     progress_callback=update_mc_progress,
@@ -1774,6 +1773,7 @@ else:
                             )
 
                             st.session_state.monte_carlo_result = {
+                                "method": mcdm_method.upper(),
                                 "summary": summary_df,
                                 "acceptability": acceptability_df,
                                 "rank_samples": np.asarray(
@@ -1790,6 +1790,10 @@ else:
                                 "seed": int(mc_seed),
                                 "mode": mc_mode,
                                 "concentration": float(mc_concentration),
+                                "baseline_winners": [
+                                    alternative_names[position]
+                                    for position in baseline_winner_positions
+                                ],
                             }
                             st.session_state.monte_carlo_fingerprint = (
                                 current_mc_fingerprint
@@ -1831,25 +1835,51 @@ else:
                             ),
                         )
                         metric_col2.metric(
-                            "Baseline winner retains Rank 1",
+                            "Any baseline Rank-1 retains Rank 1",
                             f"{monte_carlo_result['winner_retention']:.2f}%",
                         )
-                        most_stable = monte_carlo_result["summary"].sort_values(
-                            ["Rank_SD", "Baseline_Rank"]
-                        ).iloc[0]
+                        maximum_rank_one_probability = float(
+                            monte_carlo_result["summary"][
+                                "Rank_1_Freq_Pct"
+                            ].max()
+                        )
+                        most_likely_rank_one = monte_carlo_result["summary"].loc[
+                            np.isclose(
+                                monte_carlo_result["summary"][
+                                    "Rank_1_Freq_Pct"
+                                ],
+                                maximum_rank_one_probability,
+                            ),
+                            "Alternative",
+                        ]
                         metric_col3.metric(
-                            "Most stable alternative",
-                            most_stable["Alternative"],
+                            "Most likely Rank-1 alternative(s)",
+                            ", ".join(most_likely_rank_one.astype(str)),
+                            help=(
+                                f"Highest estimated Rank-1 probability: "
+                                f"{maximum_rank_one_probability:.2f}%"
+                            ),
                         )
                         metric_col4.metric(
                             "Simulations",
                             f"{monte_carlo_result['iterations']:,}",
                         )
 
-                        st.caption(
+                        sampling_caption = (
                             f"Seed {monte_carlo_result['seed']} | "
-                            f"{monte_carlo_result['mode']} | concentration "
-                            f"{monte_carlo_result['concentration']:.1f}"
+                            f"{monte_carlo_result['mode']}"
+                        )
+                        if monte_carlo_result["mode"].startswith("Local"):
+                            sampling_caption += (
+                                f" | concentration "
+                                f"{monte_carlo_result['concentration']:.1f}"
+                            )
+                        baseline_winner_caption = ", ".join(
+                            monte_carlo_result["baseline_winners"]
+                        )
+                        st.caption(
+                            f"{monte_carlo_result['method']} | {sampling_caption} | "
+                            f"baseline Rank-1: {baseline_winner_caption}"
                         )
 
                         st.markdown("### Rank stability summary")
@@ -1862,7 +1892,9 @@ else:
                         st.markdown("### Rank acceptability heatmap")
                         st.caption(
                             "Each cell is the percentage of simulations in which an "
-                            "alternative attained that rank. Hover for exact probabilities."
+                            "alternative attained that rank. Rank-1 percentages can sum "
+                            "above 100% when simulations contain ties. Hover for exact "
+                            "probabilities."
                         )
                         alternative_order = monte_carlo_result["summary"][
                             "Alternative"
@@ -1912,13 +1944,16 @@ else:
                         )
 
                         st.markdown("### Download simulation data")
+                        method_slug = monte_carlo_result["method"].lower().replace(
+                            " ", "_"
+                        )
                         download_col1, download_col2 = st.columns(2)
                         download_col1.download_button(
                             "Summary CSV",
                             convert_df_to_csv(
                                 monte_carlo_result["summary"]
                             ),
-                            "aura_monte_carlo_summary.csv",
+                            f"{method_slug}_monte_carlo_summary.csv",
                             "text/csv",
                             use_container_width=True,
                         )
@@ -1927,7 +1962,7 @@ else:
                             convert_df_to_csv(
                                 monte_carlo_result["acceptability"]
                             ),
-                            "aura_rank_acceptability.csv",
+                            f"{method_slug}_rank_acceptability.csv",
                             "text/csv",
                             use_container_width=True,
                         )
@@ -1966,14 +2001,14 @@ else:
                             raw_col1.download_button(
                                 "Raw ranks CSV",
                                 convert_df_to_csv(rank_samples_df),
-                                "aura_monte_carlo_ranks.csv",
+                                f"{method_slug}_monte_carlo_ranks.csv",
                                 "text/csv",
                                 use_container_width=True,
                             )
                             raw_col2.download_button(
                                 "Sampled weights CSV",
                                 convert_df_to_csv(weight_samples_df),
-                                "aura_monte_carlo_weights.csv",
+                                f"{method_slug}_monte_carlo_weights.csv",
                                 "text/csv",
                                 use_container_width=True,
                             )
