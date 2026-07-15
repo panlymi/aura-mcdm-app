@@ -1,7 +1,0 @@
-{
-    "python.testing.pytestArgs": [
-        "test_delete"
-    ],
-    "python.testing.unittestEnabled": false,
-    "python.testing.pytestEnabled": true
-}

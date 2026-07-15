@@ -24,8 +24,11 @@ result_clean.txt
 mc_results.txt
 res.json
 
-# Regenerable, non-curated outputs
+# Regenerable research outputs
 AURA_Scenarios_BC_Results*.xlsx
-AURA_MonteCarlo_Results_v*.xlsx
-MCDA_Scenario_Comparison_Boxplot.png
+AURA_MonteCarlo_Results*.xlsx
+Summary_Statistics.xlsx
+MCDA_*.png
+Figure_*.png
+report.json
 artifacts/generated/

@@ -57,6 +57,10 @@ python -m pip install -e ".[research]"
 streamlit run aura_app.py
 ```
 
+For a Streamlit deployment, `requirements.txt` intentionally contains only the
+runtime dependencies. Research-only plotting packages remain in the
+`research` optional dependency group in `pyproject.toml`.
+
 ## Input format
 
 Upload CSV or Excel with alternative names in the first column and criteria in
@@ -125,6 +129,11 @@ uv run python monte_carlo_scenarios.py --iterations 10000 --seed 42
 The Streamlit app and simulations call the same AURA normalization and scoring
 kernel. Monte Carlo criterion counts are derived from the matrix instead of
 being fixed at five, and ties use competition ranking consistently.
+
+Generated Excel reports, JSON summaries, and PNG figures are intentionally not
+stored in the repository. The commands above recreate them locally from the
+curated research dataset, keeping the deployment checkout small without losing
+research reproducibility.
 
 ## Method references
 
