@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
 
-from mcdm.validation import validate_crisp_matrix, validate_entropy_input
+from mcdm.criteria import CriterionType, normalize_directions
+from mcdm.validation import MCDMValidationError, validate_crisp_matrix, validate_entropy_input
 
 def calculate_entropy_weights(df, directions, method="simple"):
     """
@@ -16,6 +17,17 @@ def calculate_entropy_weights(df, directions, method="simple"):
     steps_dict: Detailed dictionaries and DataFrames for UI verification steps.
     """
     df = validate_crisp_matrix(df)
+    preferences = normalize_directions(df.columns, directions)
+    target_criteria = [
+        criterion
+        for criterion, preference in preferences.items()
+        if preference.kind is CriterionType.TARGET
+    ]
+    if target_criteria:
+        raise MCDMValidationError(
+            "EWM does not natively support target criteria. Use manual weights to preserve "
+            "the published method for: " + ", ".join(target_criteria)
+        )
     validate_entropy_input(df, method=method)
     m, n = df.shape
     if m <= 1:
@@ -32,21 +44,13 @@ def calculate_entropy_weights(df, directions, method="simple"):
             min_val = col_data.min()
             max_val = col_data.max()
             
-            dir_info = directions.get(col, "maximize")
-            if isinstance(dir_info, dict) and dir_info.get("type") == "target":
-                target = dir_info.get("value", 0.0)
-                diffs = np.abs(col_data - target)
-                max_diff = diffs.max()
-                if max_diff == 0:
-                    norm_df[col] = 1.0
-                else:
-                    norm_df[col] = 1.0 - (diffs / max_diff)
-            elif dir_info == "minimize":
+            preference = preferences[col]
+            if preference.kind is CriterionType.COST:
                 if max_val == min_val:
                     norm_df[col] = 1.0
                 else:
                     norm_df[col] = (max_val - col_data) / (max_val - min_val)
-            else: # maximize
+            else:  # benefit
                 if max_val == min_val:
                     norm_df[col] = 1.0
                 else:

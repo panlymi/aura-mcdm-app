@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from mcdm.criteria import CriterionType, normalize_directions
-from mcdm.validation import validate_crisp_matrix, validate_merec_input
+from mcdm.validation import MCDMValidationError, validate_crisp_matrix, validate_merec_input
 
 def calculate_merec_weights(df, directions):
     """
@@ -17,8 +17,18 @@ def calculate_merec_weights(df, directions):
     steps: Dictionary with intermediate steps for UI display.
     """
     df = validate_crisp_matrix(df)
-    validate_merec_input(df)
     preferences = normalize_directions(df.columns, directions)
+    target_criteria = [
+        criterion
+        for criterion, preference in preferences.items()
+        if preference.kind is CriterionType.TARGET
+    ]
+    if target_criteria:
+        raise MCDMValidationError(
+            "MEREC does not natively support target criteria. Use manual weights to preserve "
+            "the published method for: " + ", ".join(target_criteria)
+        )
+    validate_merec_input(df)
     n, m = df.shape # n = alternatives, m = criteria
     if n <= 1 or m <= 1:
         return {col: 1.0/m for col in df.columns}, {}
@@ -33,19 +43,10 @@ def calculate_merec_weights(df, directions):
         max_val = col_data.max()
         
         preference = preferences[col]
-        is_target = preference.kind is CriterionType.TARGET
-        
-        if is_target:
-            target = float(preference.target_value)
-            diffs = np.abs(col_data - target)
-            diffs[diffs <= 0] = np.finfo(float).eps
-            max_diff = diffs.max()
-            norm_df[col] = diffs / max_diff if max_diff > 0 else 1.0
-        else:
-            if preference.kind is CriterionType.COST:
-                norm_df[col] = col_data / max_val if max_val > 0 else col_data
-            else: # maximize
-                norm_df[col] = min_val / col_data
+        if preference.kind is CriterionType.COST:
+            norm_df[col] = col_data / max_val if max_val > 0 else col_data
+        else:  # benefit
+            norm_df[col] = min_val / col_data
                 
     # Step 3: Calculate overall performance (S_i)
     # Handle possible exactly 1.0 resulting in ln(1) = 0

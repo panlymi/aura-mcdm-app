@@ -24,6 +24,11 @@ comparative analysis, methods that do not natively support the configured
 criterion types are excluded with an explanation. An explicit distance-from-target
 preprocessing step would constitute an adapted method and should be reported as such.
 
+Entropy weighting (EWM) and MEREC are implemented as their native benefit/cost
+objective-weighting procedures. If any target criterion is configured, use
+manual weights; applying an uncited distance-to-target transformation would be
+an adapted weighting method.
+
 ## Architecture
 
 - `aura_app.py` — Streamlit UI and detailed method presentation.
@@ -79,9 +84,13 @@ Rules enforced by the application:
 - all crisp cells must be finite numeric values;
 - weights must be finite, non-negative, and have a positive total;
 - crisp weights are always normalized to sum to one;
+- ratio-normalized benefit criteria in ARAS, Fuzzy ARAS, ARIE, and SAW must be
+  non-negative and contain at least one positive value;
 - reciprocal cost methods reject zero or negative cost values;
 - fuzzy numbers must be ordered TFNs or TrFNs with consistent arity;
-- fuzzy matrix values and fuzzy weights must use the same arity.
+- fuzzy matrix values and fuzzy weights must use the same arity;
+- fuzzy weights must match the criteria exactly and have a positive total;
+- the SYAI trade-off parameter uses the published open interval `0 < beta < 1`.
 
 ## Monte Carlo simulation in Streamlit
 
@@ -143,6 +152,9 @@ research reproducibility.
 - Fauzi et al., “A New Method for Multi-Criteria Decision-Making: Adaptive
   Ranking with Ideal Evaluation (ARIE),” *European Journal of Pure and Applied
   Mathematics* 18(4) (2025), 6578.
+- [Wan Abdul Rahman et al., “A Novel Simplified Yielded Aggregation Index
+  (SYAI) Method for Enhancing Multi-Criteria Decision-Making,” *European
+  Journal of Pure and Applied Mathematics* 18(4) (2025), 6560](https://www.ejpam.com/index.php/ejpam/article/view/6560/2443).
 - Brauers and Zavadskas, “Multi-objective Optimization with Discrete Alternatives
   on the Basis of Ratio Analysis,” *Intellectual Economics* 2(6) (2009).
 

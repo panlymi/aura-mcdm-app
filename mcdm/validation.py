@@ -111,17 +111,29 @@ def validate_method_matrix(
 ) -> None:
     method_key = method.strip().upper()
     preferences = normalize_directions(data.columns, directions)
-    positive_required = {"ARAS", "ARIE", "SAW"}
-    if method_key in positive_required:
-        bad = [
+    ratio_normalized_methods = {"ARAS", "ARIE", "SAW"}
+    if method_key in ratio_normalized_methods:
+        invalid_benefits = [
+            criterion
+            for criterion, preference in preferences.items()
+            if preference.kind is CriterionType.BENEFIT
+            and ((data[criterion] < 0).any() or not (data[criterion] > 0).any())
+        ]
+        if invalid_benefits:
+            raise MCDMValidationError(
+                f"{method_key} ratio benefit normalization requires non-negative values "
+                "with at least one positive value for: " + ", ".join(invalid_benefits)
+            )
+
+        invalid_costs = [
             criterion
             for criterion, preference in preferences.items()
             if preference.kind is CriterionType.COST and (data[criterion] <= 0).any()
         ]
-        if bad:
+        if invalid_costs:
             raise MCDMValidationError(
                 f"{method_key} reciprocal cost normalization requires strictly positive values for: "
-                + ", ".join(bad)
+                + ", ".join(invalid_costs)
             )
 
 
@@ -195,14 +207,28 @@ def validate_fuzzy_weights(
 ) -> dict[str, tuple[float, ...]]:
     criteria_list = list(criteria)
     missing = [criterion for criterion in criteria_list if criterion not in weights]
-    if missing:
-        raise MCDMValidationError("Missing fuzzy weights for: " + ", ".join(missing))
+    extra = [criterion for criterion in weights if criterion not in criteria_list]
+    if missing or extra:
+        details = []
+        if missing:
+            details.append(f"missing: {', '.join(map(str, missing))}")
+        if extra:
+            details.append(f"unexpected: {', '.join(map(str, extra))}")
+        raise MCDMValidationError(
+            "Fuzzy weights must match criteria exactly (" + "; ".join(details) + ")."
+        )
 
     validated: dict[str, tuple[float, ...]] = {}
     for criterion in criteria_list:
         weight = weights[criterion]
-        if isinstance(weight, Real) and not isinstance(weight, bool):
-            value = float(weight)
+        if not isinstance(weight, (tuple, list)):
+            try:
+                value = _coerce_numeric(weight)
+            except (TypeError, ValueError) as exc:
+                raise MCDMValidationError(
+                    f"Weight for {criterion!r} must be a numeric scalar or an ordered "
+                    f"{arity}-value fuzzy number."
+                ) from exc
             if not math.isfinite(value) or value < 0:
                 raise MCDMValidationError(
                     f"Crisp weight for {criterion!r} must be finite and non-negative."
@@ -213,4 +239,7 @@ def validate_fuzzy_weights(
             if any(part < 0 for part in parsed):
                 raise MCDMValidationError(f"Fuzzy weight for {criterion!r} cannot be negative.")
             validated[criterion] = parsed
+
+    if not any(part > 0 for weight in validated.values() for part in weight):
+        raise MCDMValidationError("At least one fuzzy criterion weight must be greater than zero.")
     return validated
