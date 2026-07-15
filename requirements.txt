@@ -1,11 +1,7 @@
-# Runtime dependencies. For reproducible development, prefer `uv sync --all-extras`.
+# Streamlit runtime dependencies only.
 streamlit>=1.42,<2
 pandas>=2.2,<3
 numpy>=2.2,<3
 altair>=6,<7
 openpyxl>=3.1,<4
 xlrd>=2,<3
-
-# Research figures and spreadsheet exports.
-matplotlib>=3.9,<4
-seaborn>=0.13,<1
