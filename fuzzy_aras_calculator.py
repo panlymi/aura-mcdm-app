@@ -30,6 +30,20 @@ def calculate_fuzzy_aras(data: pd.DataFrame, weights: dict, directions: dict, re
     steps = {}
 
     tfn_weights = validate_fuzzy_weights(weights, columns, arity=arity)
+    invalid_benefits = [
+        col
+        for col in columns
+        if preferences[col].kind is CriterionType.BENEFIT
+        and (
+            any(part < 0 for fuzzy_value in df[col] for part in fuzzy_value)
+            or not any(part > 0 for fuzzy_value in df[col] for part in fuzzy_value)
+        )
+    ]
+    if invalid_benefits:
+        raise MCDMValidationError(
+            "Fuzzy ARAS ratio benefit normalization requires non-negative components "
+            "with at least one positive value for: " + ", ".join(invalid_benefits)
+        )
     invalid_costs = [
         col
         for col in columns
@@ -106,7 +120,7 @@ def calculate_fuzzy_aras(data: pd.DataFrame, weights: dict, directions: dict, re
                 norm_df[col] = norm_col
         else:
             l, m, u = vecs
-            if directions.get(col, 'maximize') == 'maximize':
+            if preferences[col].kind is CriterionType.BENEFIT:
                 # Benefit criteria
                 sum_u = np.sum(u)
                 sum_m = np.sum(m)

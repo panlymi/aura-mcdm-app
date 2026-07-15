@@ -92,7 +92,7 @@ elif mcdm_method == "SYAI":
     st.sidebar.subheader("SYAI Parameters")
     beta = st.sidebar.slider(
         "Closeness Parameter (β)",
-        min_value=0.0, max_value=1.0, value=0.5, step=0.05,
+        min_value=0.05, max_value=0.95, value=0.5, step=0.05,
         help="Controls preference: >0.5 emphasizes closeness to the ideal solution; <0.5 emphasizes avoiding the anti-ideal solution."
     )
 elif mcdm_method == "ARIE":
@@ -305,14 +305,22 @@ else:
                 
                 if weight_calc_method in ["Entropy Weight Method (Objective)", "MEREC (Objective)"]:
                     if weight_calc_method == "Entropy Weight Method (Objective)":
-                        st.info("EWM evaluates the variation in criteria data to assign weights objectively. You only need to configure the Directions below.")
+                        st.info(
+                            "EWM evaluates benefit/cost variation objectively. "
+                            "Target criteria require Manual / Equal Weights because an automatic "
+                            "target transformation would be an adapted method."
+                        )
                         ewm_normalization = st.selectbox(
                             "EWM Normalization Method",
                             ["Simple Proportions (P_ij = x_ij / sum_x)", "Shifted Min-Max (Min-Max + 0.001)", "Strict Min-Max (Current)"],
                             help="Select the normalization formula used for entropy probability calculation."
                         )
                     else:
-                        st.info("MEREC determines weights by evaluating the removal effect of each criterion. You only need to configure the Directions below.")
+                        st.info(
+                            "MEREC evaluates removal effects for benefit/cost criteria. "
+                            "Target criteria require Manual / Equal Weights because an automatic "
+                            "target transformation would be an adapted method."
+                        )
                         
                     edited_weights_df = st.data_editor(
                         weights_df_init,
@@ -347,7 +355,22 @@ else:
                     else:
                         directions[crit] = direction_val
                         
-                if weight_calc_method == "Entropy Weight Method (Objective)":
+                objective_has_target = (
+                    weight_calc_method
+                    in ["Entropy Weight Method (Objective)", "MEREC (Objective)"]
+                    and any(isinstance(direction, dict) for direction in directions.values())
+                )
+
+                if objective_has_target:
+                    st.error(
+                        "EWM and MEREC do not natively weight target criteria. Switch to "
+                        "Manual / Equal Weights, or explicitly document a published "
+                        "target-aware weighting adaptation."
+                    )
+                    weights = None
+                    st.session_state.ewm_steps = None
+                    st.session_state.merec_steps = None
+                elif weight_calc_method == "Entropy Weight Method (Objective)":
                     if ewm_normalization.startswith("Simple"):
                         ewm_method_code = "simple"
                     elif ewm_normalization.startswith("Shifted"):
@@ -1214,8 +1237,8 @@ else:
                             except Exception: pass
                             
                     elif mcdm_method == "SYAI":
-                        st.markdown("**Varying Closeness Parameter (β) from 0.0 to 1.0:**")
-                        param_range = np.linspace(0.0, 1.0, 11)
+                        st.markdown("**Varying Closeness Parameter (β) from 0.05 to 0.95:**")
+                        param_range = np.linspace(0.05, 0.95, 19)
                         param_name = "Beta (β)"
                         score_col_sens = 'Closeness Score (D_i)'
                         for p_val in param_range:

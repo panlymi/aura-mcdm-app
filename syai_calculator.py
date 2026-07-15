@@ -3,7 +3,7 @@ import numpy as np
 
 from mcdm.criteria import CriterionType, validate_method_capabilities
 from mcdm.ranking import natural_sort_key, rank_scores
-from mcdm.validation import validate_crisp_matrix, validate_weights
+from mcdm.validation import MCDMValidationError, validate_crisp_matrix, validate_weights
 
 def calculate_syai(data: pd.DataFrame, weights: dict, directions: dict, beta: float = 0.5, return_steps: bool = False):
     """
@@ -13,15 +13,19 @@ def calculate_syai(data: pd.DataFrame, weights: dict, directions: dict, beta: fl
         data (pd.DataFrame): The decision matrix.
         weights (dict): A dictionary of criteria weights (default sum to 1).
         directions (dict): 'maximize' or 'minimize' for each criterion.
-        beta (float): Tunable parameter for closeness score. Default is 0.5.
+        beta (float): Tunable closeness parameter in the open interval (0, 1).
         return_steps (bool): Whether to return a dictionary of intermediate calculation steps.
         
     Returns:
         pd.DataFrame or tuple: A dataframe containing SYAI calculation steps and final ranking.
                                If return_steps=True, returns (results_df, steps_dict).
     """
-    if not (0.0 <= beta <= 1.0):
-        raise ValueError("beta must be between 0 and 1.")
+    try:
+        beta = float(beta)
+    except (TypeError, ValueError) as exc:
+        raise MCDMValidationError("beta must be numeric and satisfy 0 < beta < 1.") from exc
+    if not np.isfinite(beta) or not (0.0 < beta < 1.0):
+        raise MCDMValidationError("beta must satisfy 0 < beta < 1.")
         
     # Create copies
     df = validate_crisp_matrix(data)
