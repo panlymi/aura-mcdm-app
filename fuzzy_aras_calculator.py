@@ -1,9 +1,13 @@
 import pandas as pd
 import numpy as np
-import re
 
-def natural_sort_key(s):
-    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s))]
+from mcdm.criteria import CriterionType, validate_method_capabilities
+from mcdm.ranking import natural_sort_key, rank_scores
+from mcdm.validation import (
+    MCDMValidationError,
+    validate_fuzzy_matrix,
+    validate_fuzzy_weights,
+)
 
 def calculate_fuzzy_aras(data: pd.DataFrame, weights: dict, directions: dict, return_steps: bool = False):
     """
@@ -20,22 +24,23 @@ def calculate_fuzzy_aras(data: pd.DataFrame, weights: dict, directions: dict, re
                                If return_steps=True, returns (results_df, steps_dict).
     """
     # Create copies
-    df = data.copy()
+    df, arity = validate_fuzzy_matrix(data)
     columns = df.columns
+    preferences = validate_method_capabilities("FUZZY ARAS", columns, directions)
     steps = {}
-    
-    # Ensure weights are fuzzy numbers, if crisp just repeat
-    tfn_weights = {}
-    for col, w in weights.items():
-        if isinstance(w, tuple) and len(w) in [3, 4]:
-            tfn_weights[col] = w
-        else:
-            # Check length of the first item in the column to see if it's TrFN
-            first_val = df[col].iloc[0] if len(df) > 0 else (0,0,0)
-            if isinstance(first_val, tuple) and len(first_val) == 4:
-                tfn_weights[col] = (float(w), float(w), float(w), float(w))
-            else:
-                tfn_weights[col] = (float(w), float(w), float(w))
+
+    tfn_weights = validate_fuzzy_weights(weights, columns, arity=arity)
+    invalid_costs = [
+        col
+        for col in columns
+        if preferences[col].kind is CriterionType.COST
+        and any(value[0] <= 0 for value in df[col])
+    ]
+    if invalid_costs:
+        raise MCDMValidationError(
+            "Fuzzy ARAS reciprocal cost normalization requires positive lower bounds for: "
+            + ", ".join(invalid_costs)
+        )
             
     steps['Step 0: Fuzzy Weights'] = pd.DataFrame([tfn_weights], index=['Weights']).T
 
@@ -59,13 +64,13 @@ def calculate_fuzzy_aras(data: pd.DataFrame, weights: dict, directions: dict, re
         vecs = get_fuzzy_vectors(df[col])
         if len(vecs) == 4:
             a, b, c, d = vecs
-            if directions.get(col, 'maximize') == 'maximize':
+            if preferences[col].kind is CriterionType.BENEFIT:
                 x_0[col] = (np.max(a), np.max(b), np.max(c), np.max(d))
             else:
                 x_0[col] = (np.min(a), np.min(b), np.min(c), np.min(d))
         else:
             l, m, u = vecs
-            if directions.get(col, 'maximize') == 'maximize':
+            if preferences[col].kind is CriterionType.BENEFIT:
                 x_0[col] = (np.max(l), np.max(m), np.max(u))
             else:
                 x_0[col] = (np.min(l), np.min(m), np.min(u))
@@ -81,7 +86,7 @@ def calculate_fuzzy_aras(data: pd.DataFrame, weights: dict, directions: dict, re
         vecs = get_fuzzy_vectors(df_combined[col])
         if len(vecs) == 4:
             a, b, c, d = vecs
-            if directions.get(col, 'maximize') == 'maximize':
+            if preferences[col].kind is CriterionType.BENEFIT:
                 sum_a, sum_b, sum_c, sum_d = np.sum(a), np.sum(b), np.sum(c), np.sum(d)
                 norm_col = [(a[i]/sum_d if abs(sum_d) > 1e-9 else 0.0,
                              b[i]/sum_c if abs(sum_c) > 1e-9 else 0.0,
@@ -180,7 +185,7 @@ def calculate_fuzzy_aras(data: pd.DataFrame, weights: dict, directions: dict, re
         
     steps['Step 6: Utility Degree ($K_i$)'] = K.to_frame(name='Utility Degree $K_i$')
 
-    rank = K.rank(ascending=False, method='min').astype(int)
+    rank = rank_scores(K, ascending=False)
     
     # Format results
     results = df.copy()

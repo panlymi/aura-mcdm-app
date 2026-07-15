@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 
+from mcdm.validation import validate_crisp_matrix, validate_entropy_input
+
 def calculate_entropy_weights(df, directions, method="simple"):
     """
     Calculates weights using the Entropy Weight Method (EWM).
@@ -13,6 +15,8 @@ def calculate_entropy_weights(df, directions, method="simple"):
     weights_dict: Dictionary mapping criterion name to its calculated EWM weight.
     steps_dict: Detailed dictionaries and DataFrames for UI verification steps.
     """
+    df = validate_crisp_matrix(df)
+    validate_entropy_input(df, method=method)
     m, n = df.shape
     if m <= 1:
         # Cannot calculate entropy properly with <=1 alternative

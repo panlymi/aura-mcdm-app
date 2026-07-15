@@ -1,63 +1,76 @@
-import pandas as pd
-import numpy as np
-import json
-from monte_carlo_aura import run_monte_carlo_aura
+"""Generate a reproducible JSON Monte Carlo report from the current baseline."""
 
-def generate_report():
-    csv_path = 'Full result AURA.csv'
-    df = pd.read_csv(csv_path)
-    
-    # Extract alternative names
-    alternatives = df['Alternatives'].values
-    
-    # Extract raw data
-    raw_data = df.iloc[:, 1:6].values
-    
-    # Extract baseline ranks and clean them
-    if df['Rank'].dtype == object:
-        df['Rank'] = df['Rank'].str.replace('\r', '').astype(int)
-    baseline_ranks = df['Rank'].values
-    
-    n_alts = len(alternatives)
-    criteria_types = [1, 1, -1, -1, 0]
-    
-    np.random.seed(42)
-    iterations = 10000
-    rank_matrix, correlations = run_monte_carlo_aura(raw_data, baseline_ranks, criteria_types, iterations=iterations)
-    
-    avg_spearman = np.mean(correlations)
-    
-    report_data = []
-    
-    for j in range(n_alts):
-        ranks = rank_matrix[:, j]
-        name = alternatives[j]
-        mean_rank = np.mean(ranks)
-        rank_sd = np.std(ranks)
-        min_rank = np.min(ranks)
-        max_rank = np.max(ranks)
-        top5_freq = (np.sum(ranks <= 5) / iterations) * 100
-        bottom3_freq = (np.sum(ranks >= (n_alts - 2)) / iterations) * 100
-        
-        report_data.append({
-            'Alternative': name,
-            'Baseline_Rank': int(baseline_ranks[j]),
-            'Mean_Rank': float(mean_rank),
-            'Rank_SD': float(rank_sd),
-            'Min_Rank': int(min_rank),
-            'Max_Rank': int(max_rank),
-            'Top_5_Freq_Pct': float(top5_freq),
-            'Bottom_3_Freq_Pct': float(bottom3_freq)
-        })
-        
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+import numpy as np
+
+from mcdm.research import load_ranked_dataset, run_monte_carlo_aura, summarize_rank_simulation
+
+
+DEFAULT_DATASET = "Full result AURA_new_weights.csv"
+DEFAULT_CRITERIA_TYPES = (1, 1, -1, -1, 0)
+
+
+def generate_report(
+    input_path: str = DEFAULT_DATASET,
+    output_path: str = "report.json",
+    *,
+    iterations: int = 10_000,
+    seed: int = 42,
+    target: float = 0.65,
+    criteria_types=DEFAULT_CRITERIA_TYPES,
+) -> dict:
+    source, matrix, baseline_ranks, _ = load_ranked_dataset(
+        input_path, criteria_count=len(criteria_types)
+    )
+    rank_matrix, correlations = run_monte_carlo_aura(
+        matrix,
+        baseline_ranks,
+        criteria_types,
+        iterations=iterations,
+        seed=seed,
+        target_val=target,
+    )
+    summary = summarize_rank_simulation(
+        source["Alternatives"].tolist(), baseline_ranks, rank_matrix
+    )
+    finite = correlations[np.isfinite(correlations)]
     result = {
-        'average_spearman': float(avg_spearman),
-        'iterations': iterations,
-        'metrics': report_data
+        "source": str(input_path),
+        "seed": seed,
+        "target": target,
+        "criteria_types": list(criteria_types),
+        "average_spearman": float(finite.mean()) if len(finite) else None,
+        "iterations": iterations,
+        "metrics": summary.to_dict(orient="records"),
     }
-    
-    with open('report.json', 'w') as f:
-        json.dump(result, f, indent=4)
+    Path(output_path).write_text(json.dumps(result, indent=2), encoding="utf-8")
+    return result
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--input", default=DEFAULT_DATASET)
+    parser.add_argument("--output", default="report.json")
+    parser.add_argument("--iterations", type=int, default=10_000)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--target", type=float, default=0.65)
+    parser.add_argument("--criteria-types", type=int, nargs="+", default=list(DEFAULT_CRITERIA_TYPES))
+    args = parser.parse_args()
+    generate_report(
+        args.input,
+        args.output,
+        iterations=args.iterations,
+        seed=args.seed,
+        target=args.target,
+        criteria_types=tuple(args.criteria_types),
+    )
+    print(f"Report saved to {args.output}")
+
 
 if __name__ == "__main__":
-    generate_report()
+    main()

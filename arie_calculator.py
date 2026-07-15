@@ -1,9 +1,9 @@
 import pandas as pd
 import numpy as np
-import re
 
-def natural_sort_key(s):
-    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s))]
+from mcdm.criteria import CriterionType, validate_method_capabilities
+from mcdm.ranking import natural_sort_key, rank_scores
+from mcdm.validation import validate_crisp_matrix, validate_method_matrix, validate_weights
 
 def calculate_arie(matrix, weights, directions, gamma=1.0, kappa=0.5, return_steps=False):
     """
@@ -21,18 +21,22 @@ def calculate_arie(matrix, weights, directions, gamma=1.0, kappa=0.5, return_ste
         results_df (if return_steps=False)
         (results_df, steps_dict) (if return_steps=True)
     """
-    df = matrix.copy()
+    if gamma <= 0:
+        raise ValueError("gamma must be greater than zero.")
+    if not 0 <= kappa <= 1:
+        raise ValueError("kappa must be between 0 and 1.")
+
+    df = validate_crisp_matrix(matrix)
     criteria = df.columns
+    preferences = validate_method_capabilities("ARIE", criteria, directions)
+    validate_method_matrix("ARIE", df, directions)
+    norm_weights = validate_weights(weights, criteria, normalize=True)
     EPSILON = 1e-9  # to prevent division by zero
     
     # Step 1: Construct the Decision Matrix
     steps = {}
     if return_steps:
         steps['Step 1: Decision Matrix'] = df.copy()
-
-    # Normalize weights to ensure they sum to 1
-    total_weight = sum([weights[c] for c in criteria])
-    norm_weights = {c: weights[c] / total_weight for c in criteria}
 
     # Step 2: Normalize the Decision Matrix
     r_matrix = pd.DataFrame(index=df.index, columns=criteria)
@@ -41,9 +45,9 @@ def calculate_arie(matrix, weights, directions, gamma=1.0, kappa=0.5, return_ste
         x_max = x_j.max()
         x_min = x_j.min()
         
-        dir_info = directions[c]
-        if isinstance(dir_info, dict) and dir_info.get("type") == "target":
-            target_val = dir_info.get("value", 0.0)
+        preference = preferences[c]
+        if preference.kind is CriterionType.TARGET:
+            target_val = float(preference.target_value)
             # target-type (Goal) criterion
             max_diff = max(abs(x_max - target_val), abs(x_min - target_val))
             if abs(max_diff) < 1e-9:
@@ -51,12 +55,12 @@ def calculate_arie(matrix, weights, directions, gamma=1.0, kappa=0.5, return_ste
             else:
                 r_matrix[c] = 1 - (abs(x_j - target_val) / max_diff)
         else:
-            if dir_info == 'maximize':
+            if preference.kind is CriterionType.BENEFIT:
                 if abs(x_max) < 1e-9:
                     r_matrix[c] = 0.0
                 else:
                     r_matrix[c] = x_j / x_max
-            elif dir_info == 'minimize':
+            else:
                 r_matrix[c] = x_min / (x_j + EPSILON) # prevent div by zero if x_ij is 0
     
     if return_steps:
@@ -108,7 +112,7 @@ def calculate_arie(matrix, weights, directions, gamma=1.0, kappa=0.5, return_ste
     }, index=df.index)
     
     # Rank descendingly
-    results_df['Rank'] = results_df['Relative Closeness (RC_i)'].rank(ascending=False, method='min').astype(int)
+    results_df['Rank'] = rank_scores(results_df['Relative Closeness (RC_i)'], ascending=False)
     
     # Sort by rank, then naturally by alternative name (index)
     results_df['sort_index'] = results_df.index.map(lambda x: tuple(natural_sort_key(x)))

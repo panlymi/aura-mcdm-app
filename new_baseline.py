@@ -1,69 +1,68 @@
-import pandas as pd
-import numpy as np
+"""Regenerate the AURA baseline through the canonical calculator."""
 
-def generate_new_baseline():
-    """Calculates AURA baseline to replace the loaded Full result AURA ranks"""
-    csv_path = 'Full result AURA.csv'
-    df = pd.read_csv(csv_path)
-    
-    alternatives = df['Alternatives'].values
-    raw_data = df.iloc[:, 1:6].values
-    
-    criteria_types = [1, 1, -1, -1, 0]
-    expert_weights = np.array([0.20, 0.25, 0.20, 0.25, 0.10])
-    target_val = 0.65
-    
-    n_alts, n_crits = raw_data.shape
-    norm_matrix = np.zeros((n_alts, n_crits))
-    
-    for j in range(n_crits):
-        col = raw_data[:, j]
-        max_val, min_val = np.max(col), np.min(col)
-        if max_val == min_val:
-            norm_matrix[:, j] = 1.0
-            continue
-        if criteria_types[j] == 1:
-            norm_matrix[:, j] = (col - min_val) / (max_val - min_val)
-        elif criteria_types[j] == -1:
-            norm_matrix[:, j] = (max_val - col) / (max_val - min_val)
-        elif criteria_types[j] == 0:
-            if max_val == min_val:
-                norm_matrix[:, j] = 1.0
-            else:
-                norm_matrix[:, j] = 1.0 - (np.abs(col - target_val) / (max_val - min_val))
-                
-    weighted_matrix = norm_matrix * expert_weights
-    
-    pis = np.max(weighted_matrix, axis=0)
-    nis = np.min(weighted_matrix, axis=0)
-    avg = np.mean(weighted_matrix, axis=0)
-    
-    d_pis = np.sqrt(np.sum((weighted_matrix - pis)**2, axis=1))
-    d_nis = np.sqrt(np.sum((weighted_matrix - nis)**2, axis=1))
-    d_avg = np.sqrt(np.sum((weighted_matrix - avg)**2, axis=1))
-    
-    def correct(d):
-        sigma = np.max(d) - np.min(d)
-        return d + sigma * (d ** 2)
-        
-    d_plus_corrected = correct(d_pis)
-    d_minus_corrected = correct(d_nis)
-    d_avg_corrected = correct(d_avg)
-    
-    alpha = 0.5
-    utility_scores = (alpha * (d_plus_corrected - d_minus_corrected) + (1.0 - alpha) * d_avg_corrected) / 2.0
-    
-    ranks = np.argsort(np.argsort(utility_scores)) + 1
-    
-    df['D+ (PIS)'] = d_plus_corrected
-    df['D- (NIS)'] = d_minus_corrected
-    df['D_avg (AS)'] = d_avg_corrected
-    df['Rank'] = ranks
-    df['Utility Score'] = utility_scores
-    
-    df.to_csv('Full result AURA_new_weights.csv', index=False)
-    print("New baseline generated and saved to Full result AURA_new_weights.csv")
-    return df
+from __future__ import annotations
+
+import argparse
+
+import pandas as pd
+
+from aura_calculator import calculate_aura
+from mcdm.research import directions_from_types
+from mcdm.validation import validate_crisp_matrix, validate_weights
+
+
+DEFAULT_DATASET = "Full result AURA_new_weights.csv"
+DEFAULT_CRITERIA_TYPES = (1, 1, -1, -1, 0)
+DEFAULT_WEIGHTS = (0.20, 0.25, 0.20, 0.25, 0.10)
+
+
+def generate_new_baseline(
+    input_path: str = DEFAULT_DATASET,
+    output_path: str = DEFAULT_DATASET,
+    *,
+    criteria_types=DEFAULT_CRITERIA_TYPES,
+    weights=DEFAULT_WEIGHTS,
+    target: float = 0.65,
+    alpha: float = 0.5,
+    p: int = 2,
+) -> pd.DataFrame:
+    source = pd.read_csv(input_path)
+    criteria = source.columns[1 : 1 + len(criteria_types)].tolist()
+    matrix = validate_crisp_matrix(source.set_index("Alternatives")[criteria])
+    directions = directions_from_types(criteria, criteria_types, target)
+    weight_dict = validate_weights(dict(zip(criteria, weights)), criteria, normalize=True)
+    result = calculate_aura(matrix, weight_dict, directions, alpha, p).reindex(matrix.index)
+
+    output = source[["Alternatives", *criteria]].copy()
+    for column in ["D+ (PIS)", "D- (NIS)", "D_avg (AS)", "Utility Score", "Rank"]:
+        output[column] = result[column].to_numpy()
+    output.to_csv(output_path, index=False)
+    return output
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--input", default=DEFAULT_DATASET)
+    parser.add_argument("--output", default=DEFAULT_DATASET)
+    parser.add_argument("--target", type=float, default=0.65)
+    parser.add_argument("--alpha", type=float, default=0.5)
+    parser.add_argument("--p", type=int, choices=(1, 2), default=2)
+    parser.add_argument("--criteria-types", type=int, nargs="+", default=list(DEFAULT_CRITERIA_TYPES))
+    parser.add_argument("--weights", type=float, nargs="+", default=list(DEFAULT_WEIGHTS))
+    args = parser.parse_args()
+    if len(args.criteria_types) != len(args.weights):
+        parser.error("--criteria-types and --weights must contain the same number of values")
+    generate_new_baseline(
+        args.input,
+        args.output,
+        criteria_types=tuple(args.criteria_types),
+        weights=tuple(args.weights),
+        target=args.target,
+        alpha=args.alpha,
+        p=args.p,
+    )
+    print(f"Baseline saved to {args.output}")
+
 
 if __name__ == "__main__":
-    generate_new_baseline()
+    main()

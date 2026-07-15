@@ -1,9 +1,9 @@
 import pandas as pd
 import numpy as np
-import re
 
-def natural_sort_key(s):
-    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s))]
+from mcdm.criteria import CriterionType, validate_method_capabilities
+from mcdm.ranking import natural_sort_key, rank_scores
+from mcdm.validation import validate_crisp_matrix, validate_weights
 
 def calculate_moora(data: pd.DataFrame, weights: dict, directions: dict, return_steps: bool = False):
     """
@@ -18,8 +18,10 @@ def calculate_moora(data: pd.DataFrame, weights: dict, directions: dict, return_
     Returns:
         pd.DataFrame or tuple: A dataframe containing the rankings and scores, or a tuple containing that and a dictionary of calculation steps.
     """
-    df = data.copy()
+    df = validate_crisp_matrix(data)
     columns = df.columns
+    preferences = validate_method_capabilities("MOORA", columns, directions)
+    normalized_weights = validate_weights(weights, columns, normalize=True)
     
     steps_dict = {}
     if return_steps:
@@ -42,7 +44,7 @@ def calculate_moora(data: pd.DataFrame, weights: dict, directions: dict, return_
     # v_ij = w_j * x*_ij
     weighted_df = pd.DataFrame(index=df.index, columns=columns)
     for col in columns:
-        w = weights.get(col, 1.0)
+        w = normalized_weights[col]
         weighted_df[col] = normalized_df[col] * w
         
     if return_steps:
@@ -52,8 +54,8 @@ def calculate_moora(data: pd.DataFrame, weights: dict, directions: dict, return_
     # y_i = sum(maximize criteria) - sum(minimize criteria)
     y_values = pd.Series(0.0, index=df.index)
     
-    max_cols = [col for col in columns if directions.get(col, 'maximize') == 'maximize']
-    min_cols = [col for col in columns if directions.get(col, 'maximize') == 'minimize']
+    max_cols = [col for col in columns if preferences[col].kind is CriterionType.BENEFIT]
+    min_cols = [col for col in columns if preferences[col].kind is CriterionType.COST]
     
     sum_max = weighted_df[max_cols].sum(axis=1) if max_cols else pd.Series(0.0, index=df.index)
     sum_min = weighted_df[min_cols].sum(axis=1) if min_cols else pd.Series(0.0, index=df.index)
@@ -69,7 +71,7 @@ def calculate_moora(data: pd.DataFrame, weights: dict, directions: dict, return_
         steps_dict['Step 4: Normalized Assessment Value ($y_i$)'] = y_df.copy()
         
     # 4. Ranking (Highest y_i gets highest rank, so Rank 1)
-    rank = y_values.rank(ascending=False, method='min').astype(int)
+    rank = rank_scores(y_values, ascending=False)
     
     # Format the results
     results = df.copy()

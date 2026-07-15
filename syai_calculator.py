@@ -1,9 +1,9 @@
 import pandas as pd
 import numpy as np
-import re
 
-def natural_sort_key(s):
-    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s))]
+from mcdm.criteria import CriterionType, validate_method_capabilities
+from mcdm.ranking import natural_sort_key, rank_scores
+from mcdm.validation import validate_crisp_matrix, validate_weights
 
 def calculate_syai(data: pd.DataFrame, weights: dict, directions: dict, beta: float = 0.5, return_steps: bool = False):
     """
@@ -21,19 +21,16 @@ def calculate_syai(data: pd.DataFrame, weights: dict, directions: dict, beta: fl
                                If return_steps=True, returns (results_df, steps_dict).
     """
     if not (0.0 <= beta <= 1.0):
-        beta = max(0.0, min(1.0, beta))
+        raise ValueError("beta must be between 0 and 1.")
         
     # Create copies
-    df = data.copy()
+    df = validate_crisp_matrix(data)
     columns = df.columns
+    preferences = validate_method_capabilities("SYAI", columns, directions)
     steps = {}
     
     # Validation: Ensure weights sum to 1.0 (handled in app.py typically, but good practice here)
-    total_weight = sum(weights.values())
-    if abs(total_weight - 1.0) > 1e-6:
-        w_norm = {k: v / total_weight for k, v in weights.items()}
-    else:
-        w_norm = weights.copy()
+    w_norm = validate_weights(weights, columns, normalize=True)
         
     C = 0.01  # Fixed constant to prevent zero outputs
     
@@ -50,10 +47,11 @@ def calculate_syai(data: pd.DataFrame, weights: dict, directions: dict, beta: fl
             norm_df[col] = 1.0  # If all items are identical, they all perfectly match the ideal
             continue
             
-        if type(directions.get(col)) is dict and directions[col].get('type') == 'target':
+        preference = preferences[col]
+        if preference.kind is CriterionType.TARGET:
             # Goal criterion -> ideal point is the target value T
-            x_star = directions[col].get('value')
-        elif directions.get(col, 'maximize') == 'maximize':
+            x_star = float(preference.target_value)
+        elif preference.kind is CriterionType.BENEFIT:
             # Benefit criterion -> ideal point is the maximum
             x_star = max_val
         else:
@@ -112,7 +110,7 @@ def calculate_syai(data: pd.DataFrame, weights: dict, directions: dict, beta: fl
     steps['Step 5: Final Closeness Score'] = D_score.to_frame(name='Closeness Score (D_i)')
             
     # 5. Rank the alternatives
-    rank = D_score.rank(ascending=False, method='min').astype(int)
+    rank = rank_scores(D_score, ascending=False)
     
     # Format results
     results = df.copy()
