@@ -1,9 +1,9 @@
 import pandas as pd
 import numpy as np
-import re
 
-def natural_sort_key(s):
-    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s))]
+from mcdm.criteria import CriterionType, validate_method_capabilities
+from mcdm.ranking import natural_sort_key, rank_scores
+from mcdm.validation import validate_crisp_matrix, validate_method_matrix, validate_weights
 
 def calculate_aras(data: pd.DataFrame, weights: dict, directions: dict, return_steps: bool = False):
     """
@@ -18,8 +18,11 @@ def calculate_aras(data: pd.DataFrame, weights: dict, directions: dict, return_s
     Returns:
         pd.DataFrame or tuple: A dataframe containing the rankings, scores, and utility degrees, or a tuple containing that and a dictionary of calculation steps.
     """
-    df = data.copy()
+    df = validate_crisp_matrix(data)
     columns = df.columns
+    preferences = validate_method_capabilities("ARAS", columns, directions)
+    validate_method_matrix("ARAS", df, directions)
+    normalized_weights = validate_weights(weights, columns, normalize=True)
     
     steps_dict = {}
     if return_steps:
@@ -28,7 +31,7 @@ def calculate_aras(data: pd.DataFrame, weights: dict, directions: dict, return_s
     # 1. Determine the optimal alternative (reference row x_0)
     x_0 = pd.Series(index=columns, dtype=float)
     for col in columns:
-        if directions.get(col, 'maximize') == 'maximize':
+        if preferences[col].kind is CriterionType.BENEFIT:
             x_0[col] = df[col].max()
         else:
             x_0[col] = df[col].min()
@@ -42,7 +45,7 @@ def calculate_aras(data: pd.DataFrame, weights: dict, directions: dict, return_s
     # 2. Normalize the decision matrix
     normalized_df = pd.DataFrame(index=df_with_opt.index, columns=columns)
     for col in columns:
-        if directions.get(col, 'maximize') == 'maximize':
+        if preferences[col].kind is CriterionType.BENEFIT:
             # Benefit criteria: x_ij / sum(x_ij)
             col_sum = df_with_opt[col].sum()
             if abs(col_sum) > 1e-9:
@@ -53,8 +56,8 @@ def calculate_aras(data: pd.DataFrame, weights: dict, directions: dict, return_s
             # Cost criteria: (1 / x_ij) / sum(1 / x_ij)
             # Handle division by zero
             # using epsilon to prevent dividing by tiny numbers safely
-            reciprocal = 1.0 / (df_with_opt[col].replace(0, np.nan) + 1e-9).fillna(np.inf)
-            reciprocal_sum = reciprocal.replace(np.inf, np.nan).sum() 
+            reciprocal = 1.0 / df_with_opt[col]
+            reciprocal_sum = reciprocal.sum()
             if abs(reciprocal_sum) > 1e-9 and pd.notna(reciprocal_sum):
                 normalized_df[col] = reciprocal / reciprocal_sum
             else:
@@ -62,16 +65,16 @@ def calculate_aras(data: pd.DataFrame, weights: dict, directions: dict, return_s
                 normalized_df[col] = 0.0
                 
     if return_steps:
-        steps_dict['Step 2: Normalized Decision Matrix ($\overline{x}_{ij}$)'] = normalized_df.copy()
+        steps_dict[r'Step 2: Normalized Decision Matrix ($\overline{x}_{ij}$)'] = normalized_df.copy()
                 
     # 3. Calculate the weighted normalized matrix
     weighted_df = pd.DataFrame(index=df_with_opt.index, columns=columns)
     for col in columns:
-        w = weights.get(col, 1.0)
+        w = normalized_weights[col]
         weighted_df[col] = normalized_df[col] * w
         
     if return_steps:
-        steps_dict['Step 3: Weighted Normalized Matrix ($\hat{x}_{ij}$)'] = weighted_df.copy()
+        steps_dict[r'Step 3: Weighted Normalized Matrix ($\hat{x}_{ij}$)'] = weighted_df.copy()
         
     # 4. Calculate the Optimality Function (S_i)
     # S_i is the sum of weighted normalized values for each alternative
@@ -95,7 +98,7 @@ def calculate_aras(data: pd.DataFrame, weights: dict, directions: dict, return_s
         
     # 6. Ranking (Highest K_i gets highest rank, so Rank 1)
     # Note: Unlike AURA where lowest score is best, in ARAS highest Utility Degree is best
-    rank = K.rank(ascending=False, method='min').astype(int)
+    rank = rank_scores(K, ascending=False)
     
     # Format the results
     results = df.copy()

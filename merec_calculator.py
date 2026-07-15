@@ -1,6 +1,9 @@
 import numpy as np
 import pandas as pd
 
+from mcdm.criteria import CriterionType, normalize_directions
+from mcdm.validation import validate_crisp_matrix, validate_merec_input
+
 def calculate_merec_weights(df, directions):
     """
     Calculates weights using the MEREC (Method based on the Removal Effects of Criteria).
@@ -13,14 +16,14 @@ def calculate_merec_weights(df, directions):
     weights_dict: Dictionary mapping criterion name to its calculated MEREC weight.
     steps: Dictionary with intermediate steps for UI display.
     """
+    df = validate_crisp_matrix(df)
+    validate_merec_input(df)
+    preferences = normalize_directions(df.columns, directions)
     n, m = df.shape # n = alternatives, m = criteria
     if n <= 1 or m <= 1:
         return {col: 1.0/m for col in df.columns}, {}
         
-    epsilon = 1e-6
     x_df = df.copy()
-    # Ensure strictly positive
-    x_df[x_df <= 0] = epsilon
     
     # Step 2: Normalize decision matrix (N)
     norm_df = pd.DataFrame(index=df.index, columns=df.columns)
@@ -29,17 +32,17 @@ def calculate_merec_weights(df, directions):
         min_val = col_data.min()
         max_val = col_data.max()
         
-        dir_info = directions.get(col, "maximize")
-        is_target = isinstance(dir_info, dict) and dir_info.get("type") == "target"
+        preference = preferences[col]
+        is_target = preference.kind is CriterionType.TARGET
         
         if is_target:
-            target = dir_info.get("value", 0.0)
+            target = float(preference.target_value)
             diffs = np.abs(col_data - target)
-            diffs[diffs <= 0] = epsilon
+            diffs[diffs <= 0] = np.finfo(float).eps
             max_diff = diffs.max()
             norm_df[col] = diffs / max_diff if max_diff > 0 else 1.0
         else:
-            if dir_info == "minimize":
+            if preference.kind is CriterionType.COST:
                 norm_df[col] = col_data / max_val if max_val > 0 else col_data
             else: # maximize
                 norm_df[col] = min_val / col_data

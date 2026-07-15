@@ -1,39 +1,54 @@
+import os
+import tempfile
+
+os.environ.setdefault("MPLCONFIGDIR", os.path.join(tempfile.gettempdir(), "aura-mcdm-matplotlib"))
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from monte_carlo_aura import run_monte_carlo_aura
 from monte_carlo_scenarios import run_targeted_perturbation
+import argparse
 
-def generate_paper_figures():
+DEFAULT_CRITERIA_TYPES = (1, 1, -1, -1, 0)
+
+
+def generate_paper_figures(
+    input_path="Full result AURA_new_weights.csv",
+    *,
+    iterations=10_000,
+    seed=42,
+    target=0.65,
+    criteria_types=DEFAULT_CRITERIA_TYPES,
+):
     print("Loading Baseline Data...")
-    csv_path = 'Full result AURA_new_weights.csv'
-    df = pd.read_csv(csv_path)
+    df = pd.read_csv(input_path)
     
     alternatives = df['Alternatives'].values
     state_names = [a.split(': ')[1] if ': ' in a else a for a in alternatives]
-    raw_data = df.iloc[:, 1:6].values
+    criterion_columns = df.columns[1 : 1 + len(criteria_types)].tolist()
+    raw_data = df[criterion_columns].values
     baseline_ranks = df['Rank'].values
     utility_scores = df['Utility Score'].values
     
     n_alts = len(alternatives)
-    criteria_types = [1, 1, -1, -1, 0]
-    iterations = 10000
-    
     # --- FIGURE 1: Baseline Societal Utility Bar Chart ---
     print("Generating Figure 1: Baseline Utility Bar Chart...")
     
     # Sort data by Utility Score for the clean bar chart
     fig1_df = pd.DataFrame({'State': state_names, 'Utility': utility_scores, 'Rank': baseline_ranks})
-    fig1_df = fig1_df.sort_values(by='Utility', ascending=False)
+    fig1_df = fig1_df.sort_values(by='Rank', ascending=True)
     
     plt.figure(figsize=(14, 8))
-    bars = sns.barplot(x='State', y='Utility', data=fig1_df, palette='viridis')
+    bars = sns.barplot(
+        x='State', y='Utility', hue='State', data=fig1_df,
+        palette='viridis', legend=False,
+    )
     plt.title('Figure 1: Final AURA Societal Utility Scores (Baseline Control)', fontsize=16, fontweight='bold')
-    plt.ylabel('Societal Utility Score (0 to 1)', fontsize=14)
+    plt.ylabel('AURA Utility Score (lower is better)', fontsize=14)
     plt.xlabel('State', fontsize=14)
     plt.xticks(rotation=45, ha='right', fontsize=12)
-    plt.ylim(0, max(utility_scores) * 1.1)
     
     # Add rank annotations on top of the bars
     for i, p in enumerate(bars.patches):
@@ -49,8 +64,14 @@ def generate_paper_figures():
     
     # --- Run Monte Carlo for Figures 2 & 4 ---
     print(f"\nRunning {iterations} Global Dirichlet Iterations for Figures 2 & 4...")
-    np.random.seed(42)
-    rank_matrix_A, _ = run_monte_carlo_aura(raw_data, baseline_ranks, criteria_types, iterations=iterations)
+    rank_matrix_A, _ = run_monte_carlo_aura(
+        raw_data,
+        baseline_ranks,
+        criteria_types,
+        iterations=iterations,
+        seed=seed,
+        target_val=target,
+    )
     
     # --- FIGURE 2: Global Volatility Box Plot (Scenario A) ---
     print("Generating Figure 2: Rank Volatility Boxplot...")
@@ -63,12 +84,15 @@ def generate_paper_figures():
     sorted_states_A = df.sort_values(by='Rank')['Alternatives'].apply(lambda x: x.split(': ')[1] if ': ' in x else x).values
     
     plt.figure(figsize=(14, 8))
-    sns.boxplot(x='State', y='Rank', data=plot_df_A, order=sorted_states_A, palette='coolwarm')
-    plt.title('Figure 2: Rank Volatility Across 10,000 Global Randomizations (Scenario A)', fontsize=16, fontweight='bold')
+    sns.boxplot(
+        x='State', y='Rank', hue='State', data=plot_df_A,
+        order=sorted_states_A, palette='coolwarm', legend=False,
+    )
+    plt.title(f'Figure 2: Rank Volatility Across {iterations:,} Global Randomizations (Scenario A)', fontsize=16, fontweight='bold')
     plt.ylabel('Simulated Rank (1 is Best)', fontsize=14)
     plt.xlabel('State (Ordered by Baseline Rank)', fontsize=14)
     plt.xticks(rotation=45, ha='right', fontsize=12)
-    plt.yticks(np.arange(1, 17, 1))
+    plt.yticks(np.arange(1, n_alts + 1, 1))
     plt.gca().invert_yaxis()
     plt.grid(axis='y', linestyle='--', alpha=0.7)
     plt.tight_layout()
@@ -78,8 +102,14 @@ def generate_paper_figures():
     
     # --- Run Perturbations for Figure 3 ---
     print("\nRunning Perturbation Scenarios for Figure 3...")
-    rank_matrix_B, _ = run_targeted_perturbation(raw_data, baseline_ranks, criteria_types, scenario='B', iterations=iterations)
-    rank_matrix_C, _ = run_targeted_perturbation(raw_data, baseline_ranks, criteria_types, scenario='C', iterations=iterations)
+    rank_matrix_B, _ = run_targeted_perturbation(
+        raw_data, baseline_ranks, criteria_types, scenario='B', iterations=iterations,
+        seed=seed, target_val=target,
+    )
+    rank_matrix_C, _ = run_targeted_perturbation(
+        raw_data, baseline_ranks, criteria_types, scenario='C', iterations=iterations,
+        seed=seed + 1, target_val=target,
+    )
     
     # --- FIGURE 3: Policy Perturbation Slopegraph (Bump Chart) ---
     print("Generating Figure 3: Perturbation Slopegraph...")
@@ -90,13 +120,14 @@ def generate_paper_figures():
     
     # Pick 5 narrative-heavy states to make the chart readable
     # Top 2, Bottom 2, and 1 Volatile state
-    narrative_indices = [
-        np.where(baseline_ranks == 1)[0][0],  # #1 Baseline (Selangor)
-        np.where(baseline_ranks == 2)[0][0],  # #2 Baseline (KL)
-        np.where(baseline_ranks == 14)[0][0], # #14 Baseline (Kelantan)
-        np.where(baseline_ranks == 15)[0][0], # #15 Baseline (Sabah)
-        np.where(baseline_ranks == 5)[0][0]   # #5 Labuan (Highly Volatile)
-    ]
+    baseline_order = np.argsort(baseline_ranks)
+    narrative_indices = list(dict.fromkeys([
+        int(baseline_order[0]),
+        int(baseline_order[min(1, n_alts - 1)]),
+        int(baseline_order[n_alts // 2]),
+        int(baseline_order[max(0, n_alts - 2)]),
+        int(baseline_order[-1]),
+    ]))
     
     plt.figure(figsize=(10, 8))
     
@@ -114,7 +145,7 @@ def generate_paper_figures():
     plt.title('Figure 3: Mean Rank Shifts Under Extremist Policy Scenarios', fontsize=16, fontweight='bold')
     plt.xticks([1, 2, 3], ['Hyper-Capitalist\n(Max GDP / Min Poverty)', 'Balanced Baseline\n(Empirical Weights)', 'Extreme Welfare\n(Min GDP / Max Poverty)'], fontsize=12)
     plt.ylabel('Mean Rank (1 is Best)', fontsize=14)
-    plt.yticks(np.arange(1, 17, 1))
+    plt.yticks(np.arange(1, n_alts + 1, 1))
     plt.gca().invert_yaxis()
     plt.grid(axis='y', linestyle=':', alpha=0.5)
     plt.xlim(0.5, 3.5) # Add padding for the labels
@@ -127,18 +158,25 @@ def generate_paper_figures():
     # --- FIGURE 4: Rank Acceptability Index (RAI) Heatmap ---
     print("\nGenerating Figure 4: RAI Tier Heatmap...")
     
-    # Tiers: Top 3, Ranks 4-8, Ranks 9-12, Bottom 3 (13-15)
+    # Dynamic tiers: Top 3, two middle bands, and Bottom 3.
     rai_tiers = np.zeros((n_alts, 4))
+    bottom_start = max(4, n_alts - 2)
+    first_middle_end = (3 + (bottom_start - 1) + 1) // 2
     
     for i in range(n_alts):
         ranks = rank_matrix_A[:, i]
         
         rai_tiers[i, 0] = np.sum(ranks <= 3) / iterations * 100
-        rai_tiers[i, 1] = np.sum((ranks >= 4) & (ranks <= 8)) / iterations * 100
-        rai_tiers[i, 2] = np.sum((ranks >= 9) & (ranks <= 12)) / iterations * 100
-        rai_tiers[i, 3] = np.sum(ranks >= 13) / iterations * 100
+        rai_tiers[i, 1] = np.sum((ranks >= 4) & (ranks <= first_middle_end)) / iterations * 100
+        rai_tiers[i, 2] = np.sum((ranks > first_middle_end) & (ranks < bottom_start)) / iterations * 100
+        rai_tiers[i, 3] = np.sum(ranks >= bottom_start) / iterations * 100
         
-    tier_labels = ['Top 3', 'Ranks 4-8', 'Ranks 9-12', 'Bottom 3']
+    tier_labels = [
+        'Top 3',
+        f'Ranks 4-{first_middle_end}',
+        f'Ranks {first_middle_end + 1}-{bottom_start - 1}',
+        'Bottom 3',
+    ]
     rai_df = pd.DataFrame(rai_tiers, index=state_names, columns=tier_labels)
     
     # Sort states by baseline rank
@@ -159,4 +197,17 @@ def generate_paper_figures():
 
 
 if __name__ == "__main__":
-    generate_paper_figures()
+    parser = argparse.ArgumentParser(description="Generate reproducible AURA paper figures.")
+    parser.add_argument("--input", default="Full result AURA_new_weights.csv")
+    parser.add_argument("--iterations", type=int, default=10_000)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--target", type=float, default=0.65)
+    parser.add_argument("--criteria-types", type=int, nargs="+", default=list(DEFAULT_CRITERIA_TYPES))
+    args = parser.parse_args()
+    generate_paper_figures(
+        args.input,
+        iterations=args.iterations,
+        seed=args.seed,
+        target=args.target,
+        criteria_types=tuple(args.criteria_types),
+    )

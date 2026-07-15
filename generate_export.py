@@ -1,28 +1,47 @@
+import os
+import tempfile
+
+os.environ.setdefault("MPLCONFIGDIR", os.path.join(tempfile.gettempdir(), "aura-mcdm-matplotlib"))
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from monte_carlo_aura import run_monte_carlo_aura
+import argparse
 
-def generate_exports():
+DEFAULT_CRITERIA_TYPES = (1, 1, -1, -1, 0)
+
+
+def generate_exports(
+    input_path="Full result AURA_new_weights.csv",
+    *,
+    iterations=10_000,
+    seed=42,
+    target=0.65,
+    criteria_types=DEFAULT_CRITERIA_TYPES,
+):
     print("Loading data...")
-    csv_path = 'Full result AURA_new_weights.csv'
-    df = pd.read_csv(csv_path)
+    df = pd.read_csv(input_path)
     
     alternatives = df['Alternatives'].values
-    raw_data = df.iloc[:, 1:6].values
+    criterion_columns = df.columns[1 : 1 + len(criteria_types)].tolist()
+    raw_data = df[criterion_columns].values
     
     if df['Rank'].dtype == object:
         df['Rank'] = df['Rank'].str.replace('\r', '').astype(int)
     baseline_ranks = df['Rank'].values
     
     n_alts = len(alternatives)
-    criteria_types = [1, 1, -1, -1, 0]
-    
-    print("Running 10,000 Monte Carlo simulations...")
-    np.random.seed(42)
-    iterations = 10000
-    rank_matrix, correlations = run_monte_carlo_aura(raw_data, baseline_ranks, criteria_types, iterations=iterations)
+    print(f"Running {iterations:,} Monte Carlo simulations...")
+    rank_matrix, correlations = run_monte_carlo_aura(
+        raw_data,
+        baseline_ranks,
+        criteria_types,
+        iterations=iterations,
+        seed=seed,
+        target_val=target,
+    )
     
     # --- 1. Generate Excel Report ---
     print("Generating Excel Report...")
@@ -62,6 +81,36 @@ def generate_exports():
         alt_path = 'AURA_MonteCarlo_Results_v2.xlsx'
         results_df.to_excel(alt_path, index=False)
         print(f"Excel report saved to alternate path: {alt_path}")
+
+    detailed_rows = []
+    for j, name in enumerate(alternatives):
+        ranks = rank_matrix[:, j]
+        detailed_rows.append({
+            "State": name,
+            "Baseline Rank": int(baseline_ranks[j]),
+            "Average Simulated Rank": round(float(np.mean(ranks)), 2),
+            "Rank SD": round(float(np.std(ranks)), 2),
+            "Top-3 Frequency": float(np.mean(ranks <= min(3, n_alts))),
+            "Top-5 Frequency": float(np.mean(ranks <= min(5, n_alts))),
+            "Bottom-3 Frequency": float(np.mean(ranks >= max(1, n_alts - 2))),
+        })
+    pd.DataFrame(detailed_rows).sort_values("Baseline Rank").to_excel(
+        "AURA_MonteCarlo_Results_Detailed.xlsx", index=False
+    )
+
+    summary_rows = []
+    for column in criterion_columns:
+        values = pd.to_numeric(df[column], errors="raise")
+        label = column.split(" ", 1)[1] if column.startswith("C") and " " in column else column
+        summary_rows.append({
+            "Criterion": label,
+            "Min": float(values.min()),
+            "Max": float(values.max()),
+            "Mean": float(values.mean()),
+            "Median": float(values.median()),
+            "Std. Dev.": float(values.std()),
+        })
+    pd.DataFrame(summary_rows).to_excel("Summary_Statistics.xlsx", index=False)
     
     # --- 2. Generate Figures ---
     print("Generating Figures...")
@@ -80,12 +129,15 @@ def generate_exports():
     sorted_states = df.sort_values(by='Rank')['Alternatives'].apply(lambda x: x.split(': ')[1] if ': ' in x else x).values
     
     plt.figure(figsize=(14, 8))
-    sns.boxplot(x='State', y='Rank', data=plot_df, order=sorted_states, palette='viridis')
-    plt.title('Monte Carlo Simulation: Distribution of Ranks per State (10,000 Iterations)', fontsize=16)
+    sns.boxplot(
+        x='State', y='Rank', hue='State', data=plot_df, order=sorted_states,
+        palette='viridis', legend=False,
+    )
+    plt.title(f'Monte Carlo Simulation: Distribution of Ranks per State ({iterations:,} Iterations)', fontsize=16)
     plt.ylabel('Rank (1 is Best)', fontsize=14)
     plt.xlabel('State (Ordered by Baseline Rank)', fontsize=14)
     plt.xticks(rotation=45, ha='right', fontsize=12)
-    plt.yticks(np.arange(1, 17, 1))
+    plt.yticks(np.arange(1, n_alts + 1, 1))
     plt.gca().invert_yaxis() # Invert so Rank 1 is at the top
     plt.grid(axis='y', linestyle='--', alpha=0.7)
     plt.tight_layout()
@@ -96,25 +148,27 @@ def generate_exports():
     # Figure 2: Rank Acceptability Index (RAI) Stacked Bar Chart
     # Count frequencies of ranks 1-5, 6-12, 13-16
     rai_data = []
+    top_limit = min(5, n_alts)
+    bottom_start = max(top_limit + 1, n_alts - 2)
     for j in range(n_alts):
         ranks = rank_matrix[:, j]
         name = alternatives[j].split(': ')[1] if ': ' in alternatives[j] else alternatives[j]
         
-        top5 = np.sum(ranks <= 5) / iterations * 100
-        mid = np.sum((ranks > 5) & (ranks < 13)) / iterations * 100
-        bot3 = np.sum(ranks >= 13) / iterations * 100
+        top5 = np.sum(ranks <= top_limit) / iterations * 100
+        mid = np.sum((ranks > top_limit) & (ranks < bottom_start)) / iterations * 100
+        bot3 = np.sum(ranks >= bottom_start) / iterations * 100
         
         rai_data.append({
             'State': name,
-            'Top 5 (1-5)': top5,
-            'Middle (6-12)': mid,
-            'Bottom (13-15)': bot3
+            f'Top (1-{top_limit})': top5,
+            f'Middle ({top_limit + 1}-{bottom_start - 1})': mid,
+            f'Bottom ({bottom_start}-{n_alts})': bot3
         })
         
     rai_df = pd.DataFrame(rai_data)
     rai_df = rai_df.set_index('State')
     # Reorder by Top 5 frequency
-    rai_df = rai_df.sort_values(by='Top 5 (1-5)', ascending=False)
+    rai_df = rai_df.sort_values(by=f'Top (1-{top_limit})', ascending=False)
     
     ax = rai_df.plot(kind='bar', stacked=True, figsize=(14, 8), color=['#2ca02c', '#b5b5b5', '#d62728'])
     plt.title('Rank Acceptability Index (RAI) - State Performance Frequencies', fontsize=16)
@@ -153,7 +207,7 @@ def generate_exports():
     
     plt.figure(figsize=(16, 10))
     sns.heatmap(heatmap_df, annot=True, fmt=".1f", cmap="YlGnBu", cbar_kws={'label': 'Frequency (%)'}, linewidths=.5)
-    plt.title('Monte Carlo Simulation: Heatmap of Rank Frequencies (10,000 Iterations)', fontsize=16)
+    plt.title(f'Monte Carlo Simulation: Heatmap of Rank Frequencies ({iterations:,} Iterations)', fontsize=16)
     plt.ylabel('State (Ordered by Baseline Rank)', fontsize=14)
     plt.xlabel('Possible Ranks', fontsize=14)
     plt.xticks(rotation=45, ha='right', fontsize=12)
@@ -165,4 +219,17 @@ def generate_exports():
 
 
 if __name__ == "__main__":
-    generate_exports()
+    parser = argparse.ArgumentParser(description="Generate reproducible AURA Monte Carlo exports.")
+    parser.add_argument("--input", default="Full result AURA_new_weights.csv")
+    parser.add_argument("--iterations", type=int, default=10_000)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--target", type=float, default=0.65)
+    parser.add_argument("--criteria-types", type=int, nargs="+", default=list(DEFAULT_CRITERIA_TYPES))
+    args = parser.parse_args()
+    generate_exports(
+        args.input,
+        iterations=args.iterations,
+        seed=args.seed,
+        target=args.target,
+        criteria_types=tuple(args.criteria_types),
+    )

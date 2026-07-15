@@ -1,9 +1,9 @@
 import pandas as pd
 import numpy as np
-import re
 
-def natural_sort_key(s):
-    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s))]
+from mcdm.criteria import CriterionType, validate_method_capabilities
+from mcdm.ranking import natural_sort_key, rank_scores
+from mcdm.validation import validate_crisp_matrix, validate_method_matrix, validate_weights
 
 def calculate_saw(data: pd.DataFrame, weights: dict, directions: dict, return_steps: bool = False):
     """
@@ -18,8 +18,11 @@ def calculate_saw(data: pd.DataFrame, weights: dict, directions: dict, return_st
     Returns:
         pd.DataFrame or tuple: A dataframe containing the rankings and scores, or a tuple containing that and a dictionary of calculation steps.
     """
-    df = data.copy()
+    df = validate_crisp_matrix(data)
     columns = df.columns
+    preferences = validate_method_capabilities("SAW", columns, directions)
+    validate_method_matrix("SAW", df, directions)
+    normalized_weights = validate_weights(weights, columns, normalize=True)
     
     steps_dict = {}
     if return_steps:
@@ -30,17 +33,10 @@ def calculate_saw(data: pd.DataFrame, weights: dict, directions: dict, return_st
     # Minimize: r_ij = x_j^min / x_ij
     normalized_df = pd.DataFrame(index=df.index, columns=columns, dtype=float)
     for col in columns:
-        direction = directions.get(col, 'maximize')
         col_max = df[col].max()
         col_min = df[col].min()
-        
-        # Determine actual direction (handle 'target' as dictionary or string)
-        if isinstance(direction, dict):
-            dir_type = direction.get('type', 'maximize')
-        else:
-            dir_type = direction
-            
-        if dir_type == 'maximize' or dir_type == 'target':
+
+        if preferences[col].kind is CriterionType.BENEFIT:
             if abs(col_max) > 1e-9:
                 normalized_df[col] = df[col] / col_max
             else:
@@ -59,7 +55,7 @@ def calculate_saw(data: pd.DataFrame, weights: dict, directions: dict, return_st
     # 2. Weighted Normalized Matrix
     weighted_df = pd.DataFrame(index=df.index, columns=columns, dtype=float)
     for col in columns:
-        w = weights.get(col, 1.0)
+        w = normalized_weights[col]
         weighted_df[col] = normalized_df[col] * w
         
     if return_steps:
@@ -69,7 +65,7 @@ def calculate_saw(data: pd.DataFrame, weights: dict, directions: dict, return_st
     v_i = weighted_df.sum(axis=1)
     
     # 4. Final Ranking
-    rank = v_i.rank(ascending=False, method='min').astype(int)
+    rank = rank_scores(v_i, ascending=False)
     
     # Format the results
     results = df.copy()

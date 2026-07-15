@@ -1,9 +1,9 @@
 import pandas as pd
 import numpy as np
-import re
 
-def natural_sort_key(s):
-    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s))]
+from mcdm.criteria import CriterionType, validate_method_capabilities
+from mcdm.ranking import natural_sort_key, rank_scores
+from mcdm.validation import validate_crisp_matrix, validate_weights
 
 def calculate_vikor(data: pd.DataFrame, weights: dict, directions: dict, v_param: float = 0.5, return_steps: bool = False):
     """
@@ -19,8 +19,13 @@ def calculate_vikor(data: pd.DataFrame, weights: dict, directions: dict, v_param
     Returns:
         pd.DataFrame or tuple: A dataframe containing the rankings and scores, or a tuple containing that and a dictionary of calculation steps.
     """
-    df = data.copy()
+    if not 0 <= v_param <= 1:
+        raise ValueError("v_param must be between 0 and 1.")
+
+    df = validate_crisp_matrix(data)
     columns = df.columns
+    preferences = validate_method_capabilities("VIKOR", columns, directions)
+    normalized_weights = validate_weights(weights, columns, normalize=True)
     
     steps_dict = {}
     if return_steps:
@@ -35,26 +40,12 @@ def calculate_vikor(data: pd.DataFrame, weights: dict, directions: dict, v_param
     internal_dirs = {}
     
     for col in columns:
-        direction = directions.get(col, 'maximize')
-        
-        if isinstance(direction, dict):
-            dir_type = direction.get('type', 'maximize')
-            target_val = direction.get('value', 0.0)
-        else:
-            dir_type = direction
-            target_val = 0.0
-            
-        if dir_type == 'maximize':
+        preference = preferences[col]
+        if preference.kind is CriterionType.BENEFIT:
             f_star[col] = df[col].max()
             f_minus[col] = df[col].min()
             internal_dirs[col] = 'maximize'
-        elif dir_type == 'target':
-            # Transform to absolute distance
-            transformed_df[col] = (df[col] - target_val).abs()
-            f_star[col] = transformed_df[col].min() # Best is 0
-            f_minus[col] = transformed_df[col].max() # Worst is max distance
-            internal_dirs[col] = 'minimize'
-        else: # minimize
+        else:
             f_star[col] = df[col].min()
             f_minus[col] = df[col].max()
             internal_dirs[col] = 'minimize'
@@ -85,7 +76,7 @@ def calculate_vikor(data: pd.DataFrame, weights: dict, directions: dict, v_param
                 
     weighted_norm_dist = pd.DataFrame(index=df.index, columns=columns, dtype=float)
     for col in columns:
-        w = weights.get(col, 1.0)
+        w = normalized_weights[col]
         weighted_norm_dist[col] = norm_dist[col] * w
         
     if return_steps:
@@ -120,7 +111,7 @@ def calculate_vikor(data: pd.DataFrame, weights: dict, directions: dict, v_param
         q_i[idx] = v_param * s_term + (1 - v_param) * r_term
         
     # 4. Final Ranking (Ascending order, smaller Q is better)
-    rank = q_i.rank(ascending=True, method='min').astype(int)
+    rank = rank_scores(q_i, ascending=True)
     
     # Format the results
     results = df.copy()

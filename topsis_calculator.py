@@ -1,9 +1,9 @@
 import pandas as pd
 import numpy as np
-import re
 
-def natural_sort_key(s):
-    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s))]
+from mcdm.criteria import CriterionType, validate_method_capabilities
+from mcdm.ranking import natural_sort_key, rank_scores
+from mcdm.validation import validate_crisp_matrix, validate_weights
 
 def calculate_topsis(data: pd.DataFrame, weights: dict, directions: dict, return_steps: bool = False):
     """
@@ -18,8 +18,10 @@ def calculate_topsis(data: pd.DataFrame, weights: dict, directions: dict, return
     Returns:
         pd.DataFrame or tuple: A dataframe containing the rankings and scores, or a tuple containing that and a dictionary of calculation steps.
     """
-    df = data.copy()
+    df = validate_crisp_matrix(data)
     columns = df.columns
+    preferences = validate_method_capabilities("TOPSIS", columns, directions)
+    normalized_weights = validate_weights(weights, columns, normalize=True)
     
     steps_dict = {}
     if return_steps:
@@ -42,7 +44,7 @@ def calculate_topsis(data: pd.DataFrame, weights: dict, directions: dict, return
     # v_ij = w_j * r_ij
     weighted_df = pd.DataFrame(index=df.index, columns=columns)
     for col in columns:
-        w = weights.get(col, 1.0)
+        w = normalized_weights[col]
         weighted_df[col] = normalized_df[col] * w
         
     if return_steps:
@@ -53,8 +55,7 @@ def calculate_topsis(data: pd.DataFrame, weights: dict, directions: dict, return
     nis = pd.Series(index=columns, dtype=float)
     
     for col in columns:
-        direction = directions.get(col, 'maximize')
-        if direction == 'maximize' or direction == 'target':
+        if preferences[col].kind is CriterionType.BENEFIT:
             pis[col] = weighted_df[col].max()
             nis[col] = weighted_df[col].min()
         else: # minimize
@@ -104,7 +105,7 @@ def calculate_topsis(data: pd.DataFrame, weights: dict, directions: dict, return
         steps_dict['Step 6: Relative Closeness'] = closeness_df.copy()
 
     # 6. Final Ranking
-    rank = c_i.rank(ascending=False, method='min').astype(int)
+    rank = rank_scores(c_i, ascending=False)
     
     # Format the results
     results = df.copy()

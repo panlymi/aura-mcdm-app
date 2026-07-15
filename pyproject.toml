@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aura-mcdm-app"
+version = "0.2.0"
+description = "Transparent Streamlit calculators and research tools for AURA and classical MCDM methods"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "panlymi" }]
+dependencies = [
+  "streamlit>=1.42,<2",
+  "pandas>=2.2,<3",
+  "numpy>=2.2,<3",
+  "altair>=6,<7",
+  "openpyxl>=3.1,<4",
+  "xlrd>=2,<3",
+]
+
+[project.optional-dependencies]
+research = [
+  "matplotlib>=3.9,<4",
+  "seaborn>=0.13,<1",
+]
+dev = [
+  "pytest>=8.3,<10",
+  "pytest-cov>=6,<8",
+  "ruff>=0.11,<1",
+]
+
+[tool.setuptools]
+packages = ["mcdm"]
+py-modules = [
+  "aras_calculator",
+  "arie_calculator",
+  "aura_calculator",
+  "entropy_calculator",
+  "fuzzy_aras_calculator",
+  "fuzzy_parser",
+  "merec_calculator",
+  "moora_calculator",
+  "saw_calculator",
+  "syai_calculator",
+  "topsis_calculator",
+  "vikor_calculator",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+
+[tool.coverage.run]
+branch = true
+source = ["mcdm", "."]
+omit = ["tests/*", "aura_app.py", "generate_*", "read_excel.py"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+exclude = [".venv", "__pycache__"]
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]

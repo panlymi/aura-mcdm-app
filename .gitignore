@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.venv/
+venv/
+.uv-cache/
+*.egg-info/
+
+# Test and lint caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editors and operating systems
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local diagnostic output
+out*.txt
+result_clean.txt
+mc_results.txt
+res.json
+
+# Regenerable, non-curated outputs
+AURA_Scenarios_BC_Results*.xlsx
+AURA_MonteCarlo_Results_v*.xlsx
+MCDA_Scenario_Comparison_Boxplot.png
+artifacts/generated/

@@ -1,6 +1,6 @@
 import pandas as pd
-import numpy as np
-import streamlit as st
+
+from mcdm.validation import MCDMValidationError, validate_fuzzy_number
 
 LINGUISTIC_MAPPING = {
     "vp": (0.0, 0.0, 0.2),
@@ -31,15 +31,8 @@ def parse_tfn_string(val):
         # Strip common brackets and parenthesis that a user might intuitively type
         clean_val = str(val).strip(' ()[]{}')
         parts = [float(x.strip()) for x in clean_val.split(',')]
-        if len(parts) == 4:
-            return tuple(parts)
-        elif len(parts) == 3:
-            return tuple(parts)
-        elif len(parts) == 1:
-            return (parts[0], parts[0], parts[0])
-        else:
-            return None
-    except:
+        return validate_fuzzy_number(tuple(parts))
+    except (TypeError, ValueError, MCDMValidationError):
         return None
 
 def parse_fuzzy_matrix(df: pd.DataFrame, method: str):
@@ -56,16 +49,20 @@ def parse_fuzzy_matrix(df: pd.DataFrame, method: str):
                 if clean_val in LINGUISTIC_MAPPING:
                     parsed_df.at[idx, col] = LINGUISTIC_MAPPING[clean_val]
                 else:
-                    st.error(f"Invalid linguistic term '{val}' at row '{idx}', column '{col}'. Valid terms: Poor, Fair, Good, etc.")
-                    return None
+                    raise MCDMValidationError(
+                        f"Invalid linguistic term {val!r} at row {idx!r}, column {col!r}. "
+                        "Valid terms include Poor, Fair, Good, and Very Good."
+                    )
             else:
                 # Comma-Separated
                 tfn = parse_tfn_string(val)
                 if tfn is not None:
                     parsed_df.at[idx, col] = tfn
                 else:
-                    st.error(f"Invalid Fuzzy Number format '{val}' at row '{idx}', column '{col}'. Expected 3 values like '1, 2, 3' or 4 values like '1, 2, 3, 4'.")
-                    return None
+                    raise MCDMValidationError(
+                        f"Invalid fuzzy number {val!r} at row {idx!r}, column {col!r}. "
+                        "Expected ordered values such as '1, 2, 3' or '1, 2, 3, 4'."
+                    )
                     
     return parsed_df
 
@@ -78,13 +75,15 @@ def parse_fuzzy_weights(weights: dict, method: str):
             if clean_val in LINGUISTIC_MAPPING:
                 parsed_weights[col] = LINGUISTIC_MAPPING[clean_val]
             else:
-                st.error(f"Invalid linguistic weight '{val}' for criterion '{col}'.")
-                return None
+                raise MCDMValidationError(
+                    f"Invalid linguistic weight {val!r} for criterion {col!r}."
+                )
         else:
             tfn = parse_tfn_string(val)
             if tfn is not None:
                 parsed_weights[col] = tfn
             else:
-                st.error(f"Invalid Fuzzy Number weight '{val}' for criterion '{col}'.")
-                return None
+                raise MCDMValidationError(
+                    f"Invalid fuzzy-number weight {val!r} for criterion {col!r}."
+                )
     return parsed_weights
