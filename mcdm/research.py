@@ -7,17 +7,49 @@ interactive calculator.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+import operator
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from aura_calculator import calculate_aura, calculate_aura_score_arrays, prepare_aura_matrix
+from aura_calculator import calculate_aura, prepare_aura_matrix
 from .criteria import CriterionType, normalize_directions
-from .ranking import rank_array
 from .validation import MCDMValidationError, validate_crisp_matrix, validate_weights
+
+
+MAX_MONTE_CARLO_WORKLOAD = 10_000_000
+
+
+def _positive_integer(value: Any, name: str) -> int:
+    if isinstance(value, (bool, np.bool_)):
+        raise MCDMValidationError(f"{name} must be a positive integer.")
+    try:
+        integer = operator.index(value)
+    except TypeError as exc:
+        raise MCDMValidationError(f"{name} must be a positive integer.") from exc
+    if integer <= 0:
+        raise MCDMValidationError(f"{name} must be a positive integer.")
+    return int(integer)
+
+
+def validate_monte_carlo_workload(
+    iterations: int, alternatives: int, criteria: int
+) -> int:
+    """Return the AURA simulation workload after enforcing the public ceiling."""
+
+    iteration_count = _positive_integer(iterations, "iterations")
+    alternative_count = _positive_integer(alternatives, "alternatives")
+    criterion_count = _positive_integer(criteria, "criteria")
+    workload = iteration_count * alternative_count * criterion_count
+    if workload > MAX_MONTE_CARLO_WORKLOAD:
+        raise MCDMValidationError(
+            f"Monte Carlo workload is {workload:,} cells, exceeding the "
+            f"{MAX_MONTE_CARLO_WORKLOAD:,}-cell limit. Reduce the iterations or data size."
+        )
+    return workload
 
 
 def directions_from_types(
@@ -118,6 +150,42 @@ def spearman_rank_correlation(left: Sequence[float], right: Sequence[float]) -> 
     return float(np.corrcoef(left_rank, right_rank)[0, 1])
 
 
+def _calculate_aura_utility_batch(
+    normalized_matrix: np.ndarray,
+    weight_matrix: np.ndarray,
+    *,
+    alpha: float,
+    p: int,
+) -> np.ndarray:
+    """Apply the scalar AURA scoring operations to a batch of weight rows."""
+
+    if not 0 <= alpha <= 1:
+        raise ValueError("alpha must be between 0 and 1.")
+    if p not in {1, 2}:
+        raise ValueError("p must be 1 (Manhattan) or 2 (Euclidean).")
+
+    normalized_weights = weight_matrix / weight_matrix.sum(axis=1, keepdims=True)
+    weighted = normalized_matrix[None, :, :] * normalized_weights[:, None, :]
+    pis = weighted.max(axis=1)
+    nis = weighted.min(axis=1)
+    average = weighted.mean(axis=1)
+
+    def distance(reference: np.ndarray) -> np.ndarray:
+        deviations = np.abs(weighted - reference[:, None, :])
+        if p == 1:
+            return deviations.sum(axis=2)
+        return np.power(np.power(deviations, p).sum(axis=2), 1 / p)
+
+    def correct(values: np.ndarray) -> np.ndarray:
+        sigma = values.max(axis=1) - values.min(axis=1)
+        return values + sigma[:, None] * np.square(values)
+
+    d_plus = correct(distance(pis))
+    d_minus = correct(distance(nis))
+    d_average = correct(distance(average))
+    return (alpha * (d_plus - d_minus) + (1.0 - alpha) * d_average) / 2.0
+
+
 def simulate_aura_weights(
     matrix: np.ndarray | pd.DataFrame,
     simulated_weights: np.ndarray,
@@ -127,22 +195,70 @@ def simulate_aura_weights(
     alpha: float = 0.5,
     p: int = 2,
     baseline_ranks: Sequence[int] | None = None,
+    chunk_size: int = 500,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
+    """Simulate AURA ranks in bounded batches.
+
+    ``progress_callback`` receives ``(completed_iterations, total_iterations)``
+    after each completed chunk.
+    """
+
     frame = _matrix_frame(matrix)
     directions = directions_from_types(frame.columns.tolist(), criteria_types, target_val)
-    normalized = prepare_aura_matrix(frame, directions).to_numpy(dtype=float)
     weight_matrix = np.asarray(simulated_weights, dtype=float)
     if weight_matrix.ndim != 2 or weight_matrix.shape[1] != frame.shape[1]:
         raise MCDMValidationError("Each simulated weight vector must match the criteria count.")
+    if not np.isfinite(weight_matrix).all():
+        raise MCDMValidationError("Simulated weights must contain only finite numbers.")
+    if np.any(weight_matrix < 0):
+        raise MCDMValidationError("Simulated weights must be non-negative.")
+    with np.errstate(over="ignore"):
+        weight_totals = weight_matrix.sum(axis=1)
+    if not np.isfinite(weight_totals).all() or np.any(weight_totals <= 0):
+        raise MCDMValidationError(
+            "Each simulated weight vector must have a finite, positive total."
+        )
 
-    rank_matrix = np.empty((weight_matrix.shape[0], frame.shape[0]), dtype=int)
-    correlations = np.full(weight_matrix.shape[0], np.nan, dtype=float)
-    for index, weights in enumerate(weight_matrix):
-        kernel = calculate_aura_score_arrays(normalized, weights, alpha=alpha, p=p)
-        ranks = rank_array(kernel["utility"], ascending=True)
-        rank_matrix[index] = ranks
-        if baseline_ranks is not None:
-            correlations[index] = spearman_rank_correlation(baseline_ranks, ranks)
+    simulation_count = weight_matrix.shape[0]
+    validate_monte_carlo_workload(
+        simulation_count, frame.shape[0], frame.shape[1]
+    )
+    validated_chunk_size = _positive_integer(chunk_size, "chunk_size")
+    if progress_callback is not None and not callable(progress_callback):
+        raise MCDMValidationError("progress_callback must be callable.")
+
+    baseline = None
+    if baseline_ranks is not None:
+        baseline = np.asarray(baseline_ranks, dtype=float)
+        if baseline.shape != (frame.shape[0],) or not np.isfinite(baseline).all():
+            raise MCDMValidationError(
+                "Baseline ranks must be finite and match the alternatives count."
+            )
+
+    normalized = prepare_aura_matrix(frame, directions).to_numpy(dtype=float)
+    rank_matrix = np.empty((simulation_count, frame.shape[0]), dtype=int)
+    correlations = np.full(simulation_count, np.nan, dtype=float)
+
+    for start in range(0, simulation_count, validated_chunk_size):
+        stop = min(start + validated_chunk_size, simulation_count)
+        utilities = _calculate_aura_utility_batch(
+            normalized,
+            weight_matrix[start:stop],
+            alpha=alpha,
+            p=p,
+        )
+        chunk_ranks = (
+            pd.DataFrame(utilities)
+            .rank(axis=1, ascending=True, method="min")
+            .to_numpy(dtype=int)
+        )
+        rank_matrix[start:stop] = chunk_ranks
+        if baseline is not None:
+            for offset, ranks in enumerate(chunk_ranks):
+                correlations[start + offset] = spearman_rank_correlation(baseline, ranks)
+        if progress_callback is not None:
+            progress_callback(stop, simulation_count)
     return rank_matrix, correlations
 
 
@@ -201,6 +317,7 @@ def run_monte_carlo_aura(
     concentration: float = 50.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     frame = _matrix_frame(matrix)
+    validate_monte_carlo_workload(iterations, frame.shape[0], frame.shape[1])
     weights = generate_dirichlet_weights(
         frame.shape[1],
         iterations,

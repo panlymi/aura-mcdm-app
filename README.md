@@ -36,6 +36,7 @@ an adapted weighting method.
 - `mcdm/validation.py` — crisp, fuzzy, weight, and method precondition checks.
 - `mcdm/analysis.py` — framework-neutral calculator dispatch and comparison.
 - `mcdm/state.py` — deterministic input fingerprints used to invalidate stale results.
+- `mcdm/uploads.py` — bounded, fingerprinted CSV/XLSX parsing for the public app.
 - `mcdm/presentation.py` — result-column and score-direction metadata.
 - `mcdm/research.py` — canonical AURA Monte Carlo and reporting utilities.
 - `*_calculator.py` — each method's published mathematical procedure.
@@ -50,8 +51,8 @@ Python 3.11 or newer is required.
 Using [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv sync --all-extras
-uv run streamlit run aura_app.py
+uv sync --locked --all-extras
+uv run --locked streamlit run aura_app.py
 ```
 
 Using `pip`:
@@ -80,6 +81,8 @@ Car C,18000,6,4
 
 Rules enforced by the application:
 
+- uploads must be UTF-8 CSV or XLSX files no larger than 10 MiB;
+- matrices are limited to 500 alternatives, 50 criteria, and 25,000 data cells;
 - alternative and criterion names must be unique;
 - all crisp cells must be finite numeric values;
 - weights must be finite, non-negative, and have a positive total;
@@ -105,34 +108,43 @@ tab. Two reproducible weight-sampling modes are available:
 The tab reports average Spearman rank correlation, Rank-1 retention, rank
 dispersion, and a rank-acceptability heatmap. Summary results, acceptability
 probabilities, raw simulated ranks, and sampled weights can all be downloaded as
-CSV files. The random seed and iteration count are recorded for reproducibility.
+CSV files. Raw tables are materialized only when their downloads are requested.
+The random seed, iteration count, sampling mode, and local concentration are
+recorded and fingerprinted for reproducibility; changed controls are marked stale
+until the simulation is rerun. Interactive workloads are capped at 10,000,000
+iteration-alternative-criterion operations and processed in chunks of 500.
 The interactive workflow currently applies only to AURA because it calls the
 canonical AURA simulation kernel.
+
+Sensitivity analysis and cross-method comparison run only when their explicit
+Run buttons are selected. Their results persist across ordinary Streamlit widget
+reruns and are invalidated when the baseline or relevant analysis controls change.
 
 ## Tests
 
 ```bash
-uv run pytest
-uv run ruff check .
+uv run --locked --all-extras pytest
+uv run --locked --all-extras ruff check .
 ```
 
 The suite covers golden benchmark outputs, dominant alternatives, target
 capabilities, weight-scale invariance, ties, invalid reciprocal inputs, fuzzy
 shape validation, calculation fingerprints, and agreement between the app and
 research AURA paths, including global/local Monte Carlo sampling and rank
-acceptability probabilities.
+acceptability probabilities. CI installs exclusively from `uv.lock`, verifies the
+exported runtime `requirements.txt`, and runs on Python 3.11, 3.12, and 3.13.
 
 ## Reproducing the research outputs
 
 All scripts default to `Full result AURA_new_weights.csv` and accept CLI options:
 
 ```bash
-uv run python new_baseline.py --help
-uv run python new_baseline.py
-uv run python generate_report.py --iterations 10000 --seed 42
-uv run python generate_export.py
-uv run python generate_paper_figures.py
-uv run python monte_carlo_scenarios.py --iterations 10000 --seed 42
+uv run --locked --extra research python new_baseline.py --help
+uv run --locked --extra research python new_baseline.py
+uv run --locked --extra research python generate_report.py --iterations 10000 --seed 42
+uv run --locked --extra research python generate_export.py
+uv run --locked --extra research python generate_paper_figures.py
+uv run --locked --extra research python monte_carlo_scenarios.py --iterations 10000 --seed 42
 ```
 
 The Streamlit app and simulations call the same AURA normalization and scoring

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from datetime import date, datetime, time
+
 import numpy as np
 import pandas as pd
+import pytest
 
 from aura_calculator import calculate_aura
 from mcdm.research import (
@@ -11,7 +14,12 @@ from mcdm.research import (
     run_monte_carlo_aura,
     types_and_targets_from_directions,
 )
-from mcdm.state import calculation_fingerprint
+from mcdm.state import (
+    DERIVED_STATE_DEFAULTS,
+    analysis_fingerprint,
+    calculation_fingerprint,
+    reset_derived_state,
+)
 
 
 def test_calculation_fingerprint_changes_with_every_result_input():
@@ -48,6 +56,95 @@ def test_calculation_fingerprint_changes_with_every_result_input():
         parameters={"alpha": 0.5, "p": 2},
     )
     assert len({base, changed_weight, changed_parameter, changed_matrix}) == 4
+
+
+def test_calculation_fingerprint_canonicalizes_temporal_values_recursively():
+    timestamp = pd.Timestamp("2026-07-16T09:30:00+08:00")
+    matrix = pd.DataFrame(
+        [[timestamp, 1.0]],
+        columns=["Observed At", "Value"],
+        index=pd.Index([pd.Timestamp("2026-07-16")], name="Alternative"),
+        dtype=object,
+    )
+    common = {
+        "method": "AURA",
+        "matrix": matrix,
+        "weights": {"Observed At": 0.5, "Value": 0.5},
+        "directions": {"Observed At": "maximize", "Value": "maximize"},
+    }
+    parameters = {
+        "as_of": date(2026, 7, 16),
+        "started_at": datetime(2026, 7, 16, 9, 30),
+        "cutoff": time(17, 0),
+        "numpy_timestamp": np.datetime64("2026-07-16T09:30:00"),
+    }
+
+    first = calculation_fingerprint(**common, parameters=parameters)
+    repeated = calculation_fingerprint(**common, parameters=dict(parameters))
+    changed = calculation_fingerprint(
+        **common,
+        parameters={**parameters, "as_of": date(2026, 7, 17)},
+    )
+
+    assert len(first) == 64
+    assert first == repeated
+    assert changed != first
+
+
+def test_analysis_fingerprint_covers_baseline_name_and_controls():
+    base = analysis_fingerprint(
+        baseline_fingerprint="baseline-1",
+        analysis_name="Monte Carlo",
+        controls={"iterations": 1_000, "seed": 42, "sampling": {"mode": "global"}},
+    )
+    reordered = analysis_fingerprint(
+        baseline_fingerprint="baseline-1",
+        analysis_name="  MONTE CARLO  ",
+        controls={"sampling": {"mode": "global"}, "seed": 42, "iterations": 1_000},
+    )
+    changed_baseline = analysis_fingerprint(
+        baseline_fingerprint="baseline-2",
+        analysis_name="Monte Carlo",
+        controls={"iterations": 1_000, "seed": 42, "sampling": {"mode": "global"}},
+    )
+    changed_analysis = analysis_fingerprint(
+        baseline_fingerprint="baseline-1",
+        analysis_name="Sensitivity",
+        controls={"iterations": 1_000, "seed": 42, "sampling": {"mode": "global"}},
+    )
+    changed_controls = analysis_fingerprint(
+        baseline_fingerprint="baseline-1",
+        analysis_name="Monte Carlo",
+        controls={"iterations": 1_001, "seed": 42, "sampling": {"mode": "global"}},
+    )
+
+    assert base == reordered
+    assert len({base, changed_baseline, changed_analysis, changed_controls}) == 4
+
+
+@pytest.mark.parametrize(
+    ("baseline", "analysis"),
+    [("", "Monte Carlo"), ("baseline", "")],
+)
+def test_analysis_fingerprint_rejects_missing_identity(baseline, analysis):
+    with pytest.raises(ValueError):
+        analysis_fingerprint(
+            baseline_fingerprint=baseline,
+            analysis_name=analysis,
+            controls={},
+        )
+
+
+def test_reset_derived_state_clears_all_outputs_and_preserves_controls():
+    state = {key: object() for key in DERIVED_STATE_DEFAULTS}
+    state["calculated"] = True
+    state["force_calculate"] = True
+    state["unrelated_widget"] = "keep me"
+
+    reset_derived_state(state)
+
+    assert {key: state[key] for key in DERIVED_STATE_DEFAULTS} == DERIVED_STATE_DEFAULTS
+    assert state["unrelated_widget"] == "keep me"
 
 
 def test_research_baseline_matches_application_calculator():

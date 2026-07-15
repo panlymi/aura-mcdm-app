@@ -10,13 +10,16 @@ from mcdm.criteria import CriterionType, METHOD_CAPABILITIES
 from mcdm.presentation import RESULT_PRESENTATION
 from mcdm.ranking import natural_sort_key
 from mcdm.research import (
+    MAX_MONTE_CARLO_WORKLOAD,
     generate_dirichlet_weights,
     rank_acceptability_table,
     simulate_aura_weights,
     summarize_rank_simulation,
     types_and_targets_from_directions,
+    validate_monte_carlo_workload,
 )
-from mcdm.state import calculation_fingerprint
+from mcdm.state import analysis_fingerprint, calculation_fingerprint, reset_derived_state
+from mcdm.uploads import content_fingerprint, load_decision_matrix
 from mcdm.validation import (
     MCDMValidationError,
     validate_crisp_matrix,
@@ -28,6 +31,13 @@ from mcdm.validation import (
 @st.cache_data
 def convert_df_to_csv(df):
     return df.to_csv(index=False).encode('utf-8')
+
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def load_uploaded_matrix(filename: str, content: bytes) -> pd.DataFrame:
+    """Parse and validate an upload using immutable bytes as the cache key."""
+
+    return load_decision_matrix(filename, content)
 
 st.set_page_config(page_title="MCDM Calculator", layout="wide", page_icon="📊")
 
@@ -117,51 +127,49 @@ elif mcdm_method == "VIKOR":
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("📂 Data Upload")
-uploaded_file = st.sidebar.file_uploader("Upload Decision Matrix", type=["xlsx", "csv"], help="First column should be alternative names. Rows are alternatives, columns are criteria.")
+uploaded_file = st.sidebar.file_uploader(
+    "Upload Decision Matrix",
+    type=["xlsx", "csv"],
+    help="First column should be alternative names. Rows are alternatives, columns are criteria.",
+)
 
 # --- SESSION STATE INITIALIZATION ---
-if "calculated" not in st.session_state:
-    st.session_state.calculated = False
-if "results_df" not in st.session_state:
-    st.session_state.results_df = None
-if "steps_dict" not in st.session_state:
-    st.session_state.steps_dict = None
-if "force_calculate" not in st.session_state:
-    st.session_state.force_calculate = False
-if "ewm_steps" not in st.session_state:
-    st.session_state.ewm_steps = None
-if "merec_steps" not in st.session_state:
-    st.session_state.merec_steps = None
-if "calculation_fingerprint" not in st.session_state:
-    st.session_state.calculation_fingerprint = None
-if "monte_carlo_result" not in st.session_state:
-    st.session_state.monte_carlo_result = None
-if "monte_carlo_fingerprint" not in st.session_state:
-    st.session_state.monte_carlo_fingerprint = None
+for state_key, default_value in {
+    "calculated": False,
+    "results_df": None,
+    "steps_dict": None,
+    "force_calculate": False,
+    "ewm_steps": None,
+    "merec_steps": None,
+    "calculation_fingerprint": None,
+    "sensitivity_result": None,
+    "sensitivity_fingerprint": None,
+    "comparison_result": None,
+    "comparison_fingerprint": None,
+    "monte_carlo_result": None,
+    "monte_carlo_fingerprint": None,
+    "prepare_mc_raw_downloads": False,
+}.items():
+    if state_key not in st.session_state:
+        st.session_state[state_key] = default_value
 
-# Reset calculation state when method or file changes
+uploaded_content = uploaded_file.getvalue() if uploaded_file is not None else None
+current_upload_fingerprint = (
+    content_fingerprint(uploaded_content) if uploaded_content is not None else None
+)
+
+# Reset all derived state when the method or uploaded content changes.
 if "prev_method" not in st.session_state:
     st.session_state.prev_method = mcdm_method
 if st.session_state.prev_method != mcdm_method:
-    st.session_state.calculated = False
-    st.session_state.results_df = None
-    st.session_state.steps_dict = None
-    st.session_state.calculation_fingerprint = None
-    st.session_state.monte_carlo_result = None
-    st.session_state.monte_carlo_fingerprint = None
+    reset_derived_state(st.session_state)
     st.session_state.prev_method = mcdm_method
 
-if "prev_file" not in st.session_state:
-    st.session_state.prev_file = None if uploaded_file is None else uploaded_file.name
-current_filename = None if uploaded_file is None else uploaded_file.name
-if st.session_state.prev_file != current_filename:
-    st.session_state.calculated = False
-    st.session_state.results_df = None
-    st.session_state.steps_dict = None
-    st.session_state.calculation_fingerprint = None
-    st.session_state.monte_carlo_result = None
-    st.session_state.monte_carlo_fingerprint = None
-    st.session_state.prev_file = current_filename
+if "prev_upload_fingerprint" not in st.session_state:
+    st.session_state.prev_upload_fingerprint = current_upload_fingerprint
+if st.session_state.prev_upload_fingerprint != current_upload_fingerprint:
+    reset_derived_state(st.session_state)
+    st.session_state.prev_upload_fingerprint = current_upload_fingerprint
 
 # --- MAIN APP LOGIC ---
 if uploaded_file is None:
@@ -204,11 +212,11 @@ if uploaded_file is None:
         st.dataframe(df_tfn, hide_index=True)
 
 else:
-    # Read the file
-    if uploaded_file.name.endswith('.csv'):
-        df = pd.read_csv(uploaded_file, index_col=0)
-    else:
-        df = pd.read_excel(uploaded_file, index_col=0)
+    try:
+        df = load_uploaded_matrix(uploaded_file.name, uploaded_content)
+    except MCDMValidationError as exc:
+        st.error(f"Could not load the decision matrix: {exc}")
+        st.stop()
     
     # Apply natural sorting to the index (alternatives) so A1, A2, ..., A10 instead of A1, A10, A2
     df = df.loc[sorted(df.index, key=natural_sort_key)]
@@ -501,14 +509,22 @@ else:
                         st.session_state.calculated = False
                         st.session_state.results_df = None
                         st.session_state.steps_dict = None
+                        st.session_state.sensitivity_result = None
+                        st.session_state.sensitivity_fingerprint = None
+                        st.session_state.comparison_result = None
+                        st.session_state.comparison_fingerprint = None
                         st.session_state.monte_carlo_result = None
                         st.session_state.monte_carlo_fingerprint = None
-                except (MCDMValidationError, ValueError) as exc:
+                except (MCDMValidationError, TypeError, ValueError) as exc:
                     st.error(str(exc))
             if current_fingerprint is None and st.session_state.calculated:
                 st.session_state.calculated = False
                 st.session_state.results_df = None
                 st.session_state.steps_dict = None
+                st.session_state.sensitivity_result = None
+                st.session_state.sensitivity_fingerprint = None
+                st.session_state.comparison_result = None
+                st.session_state.comparison_fingerprint = None
                 st.session_state.monte_carlo_result = None
                 st.session_state.monte_carlo_fingerprint = None
             
@@ -542,13 +558,16 @@ else:
                         st.session_state.results_df = res_df
                         st.session_state.steps_dict = steps
                         st.session_state.calculation_fingerprint = current_fingerprint
+                        st.session_state.sensitivity_result = None
+                        st.session_state.sensitivity_fingerprint = None
+                        st.session_state.comparison_result = None
+                        st.session_state.comparison_fingerprint = None
                         st.session_state.monte_carlo_result = None
                         st.session_state.monte_carlo_fingerprint = None
                         
                 except Exception as e:
                     st.error(f"An error occurred during calculation: {e}")
-                    st.session_state.calculated = False
-                    st.session_state.calculation_fingerprint = None
+                    reset_derived_state(st.session_state)
 
         # --- RESULTS TAB ---
         with tab_results:
@@ -569,23 +588,36 @@ else:
                     if col in display_df.columns:
                         display_df[col] = display_df[col].map('{:.4f}'.format)
                 
-                top_alt = display_df.index[0]
-                top_score = float(display_df[score_col].iloc[0])
-                
-                if len(display_df) > 1:
-                    runner_up = display_df.index[1]
-                    runner_up_score = float(display_df[score_col].iloc[1])
+                raw_ranks = pd.to_numeric(res_df["Rank"], errors="raise")
+                winner_rows = res_df.loc[raw_ranks == 1]
+                winner_names = [str(name) for name in winner_rows.index]
+                top_score = float(winner_rows[score_col].iloc[0])
+
+                next_ranks = raw_ranks.loc[raw_ranks > 1]
+                runner_names = []
+                gap = None
+                if not next_ranks.empty:
+                    runner_rank = int(next_ranks.min())
+                    runner_rows = res_df.loc[raw_ranks == runner_rank]
+                    runner_names = [str(name) for name in runner_rows.index]
+                    runner_up_score = float(runner_rows[score_col].iloc[0])
                     gap = abs(top_score - runner_up_score)
-                else:
-                    runner_up = "N/A"
-                    gap = 0.0
 
                 # Metrics Dashboard
                 dash_c1, dash_c2, dash_c3 = st.columns(3)
-                dash_c1.metric(label="🥇 Top Ranked Alternative", value=str(top_alt))
+                dash_c1.metric(
+                    label="🥇 Rank-1 Alternative(s)",
+                    value=", ".join(winner_names),
+                )
                 dash_c2.metric(label=f"⭐ Winning {unit}", value=f"{top_score:.4f}")
-                if len(display_df) > 1:
-                    dash_c3.metric(label="🥈 1st to 2nd Place Gap", value=f"+{gap:.4f}" if sort_ascending else f"-{gap:.4f}", delta=f"{gap:.4f} diff", delta_color="off")
+                dash_c3.metric(
+                    label="Winner-to-runner-up score gap (absolute)",
+                    value=f"{gap:.4f}" if gap is not None else "N/A",
+                )
+                if runner_names:
+                    st.caption(f"Next-ranked alternative(s): {', '.join(runner_names)}")
+                else:
+                    st.caption("All alternatives share Rank 1; there is no distinct runner-up.")
                 
                 st.markdown("---")
                 
@@ -1138,182 +1170,361 @@ else:
                 st.info("Sensitivity analysis will appear here after you run the calculation in the Setup tab.")
             else:
                 st.subheader(f"📈 Sensitivity Analysis ({mcdm_method})")
-                st.markdown("Analyze how changes in criteria weights or method parameters affect the final rankings.")
-                
-                # 1. Weight Sensitivity Analysis
-                if mcdm_method == "Fuzzy ARAS" and weight_type == "Fuzzy":
-                    st.warning("Weight Sensitivity Analysis is currently supported for Crisp weights only.")
-                else:
+                st.markdown(
+                    "Analyze how changes in criteria weights or method parameters affect "
+                    "the final rankings."
+                )
+
+                fuzzy_weight_sensitivity = (
+                    mcdm_method == "Fuzzy ARAS" and weight_type == "Fuzzy"
+                )
+                base_weights = None if fuzzy_weight_sensitivity else weights.copy()
+                weight_sensitivity_available = (
+                    base_weights is not None and len(base_weights) > 1
+                )
+                parameter_sensitivity_available = mcdm_method in [
+                    "AURA",
+                    "SYAI",
+                    "ARIE",
+                    "VIKOR",
+                ]
+
+                selected_criterion = None
+                weight_range = np.linspace(0.0, 1.0, 11)
+                if fuzzy_weight_sensitivity:
+                    st.warning(
+                        "Weight Sensitivity Analysis is currently supported for Crisp "
+                        "weights only."
+                    )
+                elif weight_sensitivity_available:
                     st.markdown("### ⚖️ Weight Sensitivity Analysis")
-                    st.markdown("Select a criterion to vary its weight from 0.0 to 1.0. Other criteria weights will be adjusted proportionally to maintain a sum of 1.0.")
-                    
-                    base_weights = weights.copy()
-                    
-                    if len(base_weights) > 1:
-                        selected_criterion = st.selectbox("Select Criterion to Vary", list(base_weights.keys()))
-                        
-                        sensitivity_steps = 11
-                        w_range = np.linspace(0.0, 1.0, sensitivity_steps)
-                        
-                        sensitivity_results = []
-                        sensitivity_error = None
+                    st.markdown(
+                        "Select a criterion to vary from 0.0 to 1.0. Other weights are "
+                        "adjusted proportionally to keep their sum equal to 1.0."
+                    )
+                    selected_criterion = st.selectbox(
+                        "Select Criterion to Vary",
+                        list(base_weights.keys()),
+                        key="sensitivity_criterion",
+                    )
+                else:
+                    st.info("Weight Sensitivity Analysis requires at least 2 criteria.")
+
+                parameter_ranges = {}
+                if mcdm_method == "AURA":
+                    parameter_ranges = {"alpha": np.linspace(0.0, 1.0, 11).tolist()}
+                elif mcdm_method == "SYAI":
+                    parameter_ranges = {"beta": np.linspace(0.05, 0.95, 19).tolist()}
+                elif mcdm_method == "ARIE":
+                    parameter_ranges = {
+                        "gamma": np.linspace(0.5, 3.0, 11).tolist(),
+                        "kappa": np.linspace(0.0, 1.0, 11).tolist(),
+                    }
+                elif mcdm_method == "VIKOR":
+                    parameter_ranges = {"v": np.linspace(0.0, 1.0, 11).tolist()}
+
+                sensitivity_controls = {
+                    "criterion": selected_criterion,
+                    "weight_range": (
+                        weight_range.tolist() if weight_sensitivity_available else []
+                    ),
+                    "parameter_ranges": parameter_ranges,
+                }
+                current_sensitivity_fingerprint = analysis_fingerprint(
+                    baseline_fingerprint=st.session_state.calculation_fingerprint,
+                    analysis_name="sensitivity",
+                    controls=sensitivity_controls,
+                )
+
+                run_sensitivity = st.button(
+                    "Run Sensitivity Analysis",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=not (
+                        weight_sensitivity_available
+                        or parameter_sensitivity_available
+                    ),
+                    key="run_sensitivity",
+                )
+
+                if run_sensitivity:
+                    sensitivity_output = {
+                        "weight": None,
+                        "parameter": None,
+                        "parameter_secondary": None,
+                        "errors": [],
+                    }
+
+                    if weight_sensitivity_available:
                         original_weights = base_weights.copy()
-                        w_k_orig = original_weights[selected_criterion]
-                        score_col_sens = RESULT_PRESENTATION[mcdm_method.upper()].score_column
-                        
-                        progress_text = "Running Weight Sensitivity Analysis. Please wait."
-                        my_bar = st.progress(0, text=progress_text)
-                        
-                        for i, w_k_new in enumerate(w_range):
-                            new_weights = {}
-                            for crit, w_val in original_weights.items():
-                                if crit == selected_criterion:
-                                    new_weights[crit] = w_k_new
+                        original_selected_weight = original_weights[selected_criterion]
+                        score_column = RESULT_PRESENTATION[
+                            mcdm_method.upper()
+                        ].score_column
+                        weight_rows = []
+                        progress = st.progress(
+                            0, text="Running Weight Sensitivity Analysis..."
+                        )
+                        for index, new_selected_weight in enumerate(weight_range):
+                            adjusted_weights = {}
+                            for criterion, original_weight in original_weights.items():
+                                if criterion == selected_criterion:
+                                    adjusted_weights[criterion] = new_selected_weight
+                                elif original_selected_weight == 1.0:
+                                    adjusted_weights[criterion] = (
+                                        1.0 - new_selected_weight
+                                    ) / (len(original_weights) - 1)
                                 else:
-                                    if w_k_orig == 1.0:
-                                        new_weights[crit] = (1.0 - w_k_new) / (len(original_weights) - 1)
-                                    else:
-                                        new_weights[crit] = w_val * (1.0 - w_k_new) / (1.0 - w_k_orig)
-                            
+                                    adjusted_weights[criterion] = (
+                                        original_weight
+                                        * (1.0 - new_selected_weight)
+                                        / (1.0 - original_selected_weight)
+                                    )
                             try:
-                                temp_res = calculate_method(
+                                temporary_result = calculate_method(
                                     mcdm_method,
                                     matrix_to_calc,
-                                    new_weights,
+                                    adjusted_weights,
                                     directions,
                                     parameters=parameters,
                                 )
-                                
-                                for alt_idx in temp_res.index:
-                                    sensitivity_results.append({
-                                        'Weight': w_k_new,
-                                        'Alternative': alt_idx,
-                                        'Score': temp_res.loc[alt_idx, score_col_sens]
-                                    })
+                                for alternative in temporary_result.index:
+                                    weight_rows.append(
+                                        {
+                                            "Weight": float(new_selected_weight),
+                                            "Alternative": alternative,
+                                            "Score": temporary_result.loc[
+                                                alternative, score_column
+                                            ],
+                                        }
+                                    )
                             except Exception as exc:
-                                sensitivity_error = str(exc)
-                                
-                            my_bar.progress((i + 1) / sensitivity_steps, text=progress_text)
-                            
-                        my_bar.empty()
-                        if sensitivity_error and not sensitivity_results:
-                            st.warning(f"Sensitivity analysis could not run: {sensitivity_error}")
-                        
-                        if sensitivity_results:
-                            sens_df = pd.DataFrame(sensitivity_results)
-                            unique_alts_sens = sorted(sens_df['Alternative'].unique(), key=natural_sort_key)
-                            
-                            st.markdown(f"**Impact of varying '{selected_criterion}' weight on Alternative Scores:**")
-                            chart = alt.Chart(sens_df).mark_line(point=True).encode(
-                                x=alt.X('Weight:Q', title=f"Weight of '{selected_criterion}' (0 to 1)"),
-                                y=alt.Y('Score:Q', title="Score", scale=alt.Scale(zero=False)),
-                                color=alt.Color('Alternative:N', sort=unique_alts_sens, legend=alt.Legend(orient='right')),
-                                tooltip=['Alternative', alt.Tooltip('Weight', format='.2f'), alt.Tooltip('Score', format='.4f')]
-                            ).properties(height=400).interactive()
-                            st.altair_chart(chart, use_container_width=True)
+                                sensitivity_output["errors"].append(
+                                    f"Weight sensitivity could not run: {exc}"
+                                )
+                                break
+                            finally:
+                                progress.progress(
+                                    (index + 1) / len(weight_range),
+                                    text="Running Weight Sensitivity Analysis...",
+                                )
+                        progress.empty()
+                        if weight_rows:
+                            sensitivity_output["weight"] = pd.DataFrame(weight_rows)
+
+                    def parameter_sweep(
+                        method_name,
+                        parameter_name,
+                        values,
+                        score_column,
+                    ):
+                        rows = []
+                        for parameter_value in values:
+                            try:
+                                temporary_result = calculate_method(
+                                    method_name,
+                                    matrix_to_calc,
+                                    base_weights,
+                                    directions,
+                                    parameters={
+                                        **parameters,
+                                        parameter_name: parameter_value,
+                                    },
+                                )
+                            except Exception as exc:
+                                sensitivity_output["errors"].append(
+                                    f"{parameter_name} sensitivity could not run: {exc}"
+                                )
+                                break
+                            for alternative in temporary_result.index:
+                                rows.append(
+                                    {
+                                        "Parameter": float(parameter_value),
+                                        "Alternative": alternative,
+                                        "Score": temporary_result.loc[
+                                            alternative, score_column
+                                        ],
+                                    }
+                                )
+                        return pd.DataFrame(rows) if rows else None
+
+                    if parameter_sensitivity_available:
+                        if mcdm_method == "AURA":
+                            sensitivity_output["parameter"] = parameter_sweep(
+                                "AURA",
+                                "alpha",
+                                parameter_ranges["alpha"],
+                                "Utility Score",
+                            )
+                        elif mcdm_method == "SYAI":
+                            sensitivity_output["parameter"] = parameter_sweep(
+                                "SYAI",
+                                "beta",
+                                parameter_ranges["beta"],
+                                "Closeness Score (D_i)",
+                            )
+                        elif mcdm_method == "ARIE":
+                            sensitivity_output["parameter"] = parameter_sweep(
+                                "ARIE",
+                                "gamma",
+                                parameter_ranges["gamma"],
+                                "Relative Closeness (RC_i)",
+                            )
+                            sensitivity_output[
+                                "parameter_secondary"
+                            ] = parameter_sweep(
+                                "ARIE",
+                                "kappa",
+                                parameter_ranges["kappa"],
+                                "Relative Closeness (RC_i)",
+                            )
+                        elif mcdm_method == "VIKOR":
+                            sensitivity_output["parameter"] = parameter_sweep(
+                                "VIKOR",
+                                "v",
+                                parameter_ranges["v"],
+                                "Q_i (VIKOR Index)",
+                            )
+
+                    st.session_state.sensitivity_result = sensitivity_output
+                    st.session_state.sensitivity_fingerprint = (
+                        current_sensitivity_fingerprint
+                    )
+
+                sensitivity_output = st.session_state.sensitivity_result
+                if sensitivity_output is not None:
+                    if (
+                        st.session_state.sensitivity_fingerprint
+                        != current_sensitivity_fingerprint
+                    ):
+                        st.warning(
+                            "Sensitivity settings changed—rerun the analysis to "
+                            "refresh the results."
+                        )
                     else:
-                        st.info("Weight Sensitivity Analysis requires at least 2 criteria.")
-                        
-                # 2. Parameter Sensitivity Analysis
-                if mcdm_method in ["AURA", "SYAI", "ARIE", "VIKOR"]:
-                    st.markdown("---")
-                    st.markdown(f"### ⚙️ {mcdm_method} Parameter Sensitivity")
-                    
-                    param_results = []
-                    
-                    if mcdm_method == "AURA":
-                        st.markdown("**Varying Balance Parameter (α) from 0.0 to 1.0:**")
-                        param_range = np.linspace(0.0, 1.0, 11)
-                        param_name = "Alpha (α)"
-                        score_col_sens = 'Utility Score'
-                        for p_val in param_range:
-                            try:
-                                temp_res = calculate_method(
-                                    "AURA", matrix_to_calc, base_weights, directions,
-                                    parameters={**parameters, "alpha": p_val},
+                        for error_message in sensitivity_output["errors"]:
+                            st.warning(error_message)
+
+                        weight_result = sensitivity_output["weight"]
+                        if weight_result is not None:
+                            alternatives = sorted(
+                                weight_result["Alternative"].unique(),
+                                key=natural_sort_key,
+                            )
+                            st.markdown(
+                                f"**Impact of varying '{selected_criterion}' weight "
+                                "on Alternative Scores:**"
+                            )
+                            weight_chart = (
+                                alt.Chart(weight_result)
+                                .mark_line(point=True)
+                                .encode(
+                                    x=alt.X(
+                                        "Weight:Q",
+                                        title=f"Weight of '{selected_criterion}' (0 to 1)",
+                                    ),
+                                    y=alt.Y(
+                                        "Score:Q",
+                                        title="Score",
+                                        scale=alt.Scale(zero=False),
+                                    ),
+                                    color=alt.Color(
+                                        "Alternative:N",
+                                        sort=alternatives,
+                                        legend=alt.Legend(orient="right"),
+                                    ),
+                                    tooltip=[
+                                        "Alternative",
+                                        alt.Tooltip("Weight", format=".2f"),
+                                        alt.Tooltip("Score", format=".4f"),
+                                    ],
                                 )
-                                for alt_idx in temp_res.index:
-                                    param_results.append({'Parameter': p_val, 'Alternative': alt_idx, 'Score': temp_res.loc[alt_idx, score_col_sens]})
-                            except Exception: pass
-                            
-                    elif mcdm_method == "SYAI":
-                        st.markdown("**Varying Closeness Parameter (β) from 0.05 to 0.95:**")
-                        param_range = np.linspace(0.05, 0.95, 19)
-                        param_name = "Beta (β)"
-                        score_col_sens = 'Closeness Score (D_i)'
-                        for p_val in param_range:
-                            try:
-                                temp_res = calculate_method(
-                                    "SYAI", matrix_to_calc, base_weights, directions,
-                                    parameters={**parameters, "beta": p_val},
+                                .properties(height=400)
+                                .interactive()
+                            )
+                            st.altair_chart(weight_chart, use_container_width=True)
+
+                        parameter_result = sensitivity_output["parameter"]
+                        if parameter_result is not None:
+                            st.markdown("---")
+                            st.markdown(
+                                f"### ⚙️ {mcdm_method} Parameter Sensitivity"
+                            )
+                            parameter_labels = {
+                                "AURA": "Alpha (α)",
+                                "SYAI": "Beta (β)",
+                                "ARIE": "Gamma (γ)",
+                                "VIKOR": "v (Majority Weight)",
+                            }
+                            alternatives = sorted(
+                                parameter_result["Alternative"].unique(),
+                                key=natural_sort_key,
+                            )
+                            parameter_chart = (
+                                alt.Chart(parameter_result)
+                                .mark_line(point=True)
+                                .encode(
+                                    x=alt.X(
+                                        "Parameter:Q",
+                                        title=parameter_labels[mcdm_method],
+                                    ),
+                                    y=alt.Y(
+                                        "Score:Q",
+                                        title="Score",
+                                        scale=alt.Scale(zero=False),
+                                    ),
+                                    color=alt.Color(
+                                        "Alternative:N",
+                                        sort=alternatives,
+                                        legend=alt.Legend(orient="right"),
+                                    ),
+                                    tooltip=[
+                                        "Alternative",
+                                        alt.Tooltip("Parameter", format=".2f"),
+                                        alt.Tooltip("Score", format=".4f"),
+                                    ],
                                 )
-                                for alt_idx in temp_res.index:
-                                    param_results.append({'Parameter': p_val, 'Alternative': alt_idx, 'Score': temp_res.loc[alt_idx, score_col_sens]})
-                            except Exception: pass
-                            
-                    elif mcdm_method == "ARIE":
-                        st.markdown("**Varying Sensitivity Parameter (γ) from 0.5 to 3.0 (fixing κ):**")
-                        param_range = np.linspace(0.5, 3.0, 11)
-                        param_name = "Gamma (γ)"
-                        score_col_sens = 'Relative Closeness (RC_i)'
-                        for p_val in param_range:
-                            try:
-                                temp_res = calculate_method(
-                                    "ARIE", matrix_to_calc, base_weights, directions,
-                                    parameters={**parameters, "gamma": p_val},
+                                .properties(height=400)
+                                .interactive()
+                            )
+                            st.altair_chart(parameter_chart, use_container_width=True)
+
+                        secondary_result = sensitivity_output[
+                            "parameter_secondary"
+                        ]
+                        if secondary_result is not None:
+                            st.markdown(
+                                "**Varying Balancing Parameter (κ) from 0.0 to "
+                                "1.0 (fixing γ):**"
+                            )
+                            secondary_chart = (
+                                alt.Chart(secondary_result)
+                                .mark_line(point=True)
+                                .encode(
+                                    x=alt.X("Parameter:Q", title="Kappa (κ)"),
+                                    y=alt.Y(
+                                        "Score:Q",
+                                        title="Score",
+                                        scale=alt.Scale(zero=False),
+                                    ),
+                                    color=alt.Color(
+                                        "Alternative:N",
+                                        legend=alt.Legend(orient="right"),
+                                    ),
+                                    tooltip=[
+                                        "Alternative",
+                                        alt.Tooltip("Parameter", format=".2f"),
+                                        alt.Tooltip("Score", format=".4f"),
+                                    ],
                                 )
-                                for alt_idx in temp_res.index:
-                                    param_results.append({'Parameter': p_val, 'Alternative': alt_idx, 'Score': temp_res.loc[alt_idx, score_col_sens]})
-                            except Exception: pass
-                            
-                    elif mcdm_method == "VIKOR":
-                        st.markdown("**Varying Weight Parameter (v) from 0.0 (Veto) to 1.0 (Majority Voting):**")
-                        param_range = np.linspace(0.0, 1.0, 11)
-                        param_name = "v (Majority Weight)"
-                        score_col_sens = 'Q_i (VIKOR Index)'
-                        for p_val in param_range:
-                            try:
-                                temp_res = calculate_method(
-                                    "VIKOR", matrix_to_calc, base_weights, directions,
-                                    parameters={**parameters, "v": p_val},
-                                )
-                                for alt_idx in temp_res.index:
-                                    param_results.append({'Parameter': p_val, 'Alternative': alt_idx, 'Score': temp_res.loc[alt_idx, score_col_sens]})
-                            except Exception: pass
-                            
-                    if param_results:
-                        p_df = pd.DataFrame(param_results)
-                        unique_alts_param = sorted(p_df['Alternative'].unique(), key=natural_sort_key)
-                        p_chart = alt.Chart(p_df).mark_line(point=True).encode(
-                            x=alt.X('Parameter:Q', title=param_name),
-                            y=alt.Y('Score:Q', title="Score", scale=alt.Scale(zero=False)),
-                            color=alt.Color('Alternative:N', sort=unique_alts_param, legend=alt.Legend(orient='right')),
-                            tooltip=['Alternative', alt.Tooltip('Parameter', format='.2f'), alt.Tooltip('Score', format='.4f')]
-                        ).properties(height=400).interactive()
-                        st.altair_chart(p_chart, use_container_width=True)
-                        
-                    if mcdm_method == "ARIE":
-                        st.markdown("**Varying Balancing Parameter (κ) from 0.0 to 1.0 (fixing γ):**")
-                        param_results_k = []
-                        param_range_k = np.linspace(0.0, 1.0, 11)
-                        for k_val in param_range_k:
-                            try:
-                                temp_res = calculate_method(
-                                    "ARIE", matrix_to_calc, base_weights, directions,
-                                    parameters={**parameters, "kappa": k_val},
-                                )
-                                for alt_idx in temp_res.index:
-                                    param_results_k.append({'Parameter': k_val, 'Alternative': alt_idx, 'Score': temp_res.loc[alt_idx, score_col_sens]})
-                            except Exception: pass
-                        if param_results_k:
-                            p_df_k = pd.DataFrame(param_results_k)
-                            p_chart_k = alt.Chart(p_df_k).mark_line(point=True).encode(
-                                x=alt.X('Parameter:Q', title="Kappa (κ)"),
-                                y=alt.Y('Score:Q', title="Score", scale=alt.Scale(zero=False)),
-                                color=alt.Color('Alternative:N', legend=alt.Legend(orient='right')),
-                                tooltip=['Alternative', alt.Tooltip('Parameter', format='.2f'), alt.Tooltip('Score', format='.4f')]
-                            ).properties(height=400).interactive()
-                            st.altair_chart(p_chart_k, use_container_width=True)
+                                .properties(height=400)
+                                .interactive()
+                            )
+                            st.altair_chart(secondary_chart, use_container_width=True)
+                elif weight_sensitivity_available or parameter_sensitivity_available:
+                    st.info(
+                        "Choose the controls above, then click Run Sensitivity Analysis."
+                    )
 
         # --- MONTE CARLO SIMULATION TAB ---
         with tab_monte_carlo:
@@ -1380,27 +1591,72 @@ else:
                 )
 
                 current_weight_values = np.asarray(
-                    [float(weights[column]) for column in matrix_to_calc.columns], dtype=float
+                    [float(weights[column]) for column in matrix_to_calc.columns],
+                    dtype=float,
                 )
                 local_weights_valid = bool(np.all(current_weight_values > 0))
                 if is_local_sampling and not local_weights_valid:
                     st.warning(
-                        "Local sampling requires every current criterion weight to be greater "
-                        "than zero. Use global sampling or adjust the zero weights."
+                        "Local sampling requires every current criterion weight to be "
+                        "greater than zero. Use global sampling or adjust the zero weights."
                     )
+
+                workload_valid = True
+                workload = (
+                    int(mc_iterations)
+                    * matrix_to_calc.shape[0]
+                    * matrix_to_calc.shape[1]
+                )
+                try:
+                    workload = validate_monte_carlo_workload(
+                        int(mc_iterations),
+                        matrix_to_calc.shape[0],
+                        matrix_to_calc.shape[1],
+                    )
+                except MCDMValidationError as exc:
+                    workload_valid = False
+                    st.error(str(exc))
+                st.caption(
+                    f"Simulation workload: {workload:,} of "
+                    f"{MAX_MONTE_CARLO_WORKLOAD:,} allowed operations."
+                )
+
+                mc_controls = {
+                    "iterations": int(mc_iterations),
+                    "seed": int(mc_seed),
+                    "sampling_mode": mc_mode,
+                    "concentration": float(mc_concentration),
+                }
+                current_mc_fingerprint = analysis_fingerprint(
+                    baseline_fingerprint=st.session_state.calculation_fingerprint,
+                    analysis_name="monte_carlo",
+                    controls=mc_controls,
+                )
 
                 run_monte_carlo = st.button(
                     "Run Monte Carlo Simulation",
                     type="primary",
                     use_container_width=True,
-                    disabled=is_local_sampling and not local_weights_valid,
+                    disabled=(
+                        (is_local_sampling and not local_weights_valid)
+                        or not workload_valid
+                    ),
                     key="run_monte_carlo",
                 )
 
                 if run_monte_carlo:
+                    st.session_state.monte_carlo_result = None
+                    st.session_state.monte_carlo_fingerprint = None
+                    st.session_state.prepare_mc_raw_downloads = False
                     try:
+                        validate_monte_carlo_workload(
+                            int(mc_iterations),
+                            matrix_to_calc.shape[0],
+                            matrix_to_calc.shape[1],
+                        )
                         with st.spinner(
-                            f"Running {mc_iterations:,} AURA simulations with seed {mc_seed}..."
+                            f"Running {mc_iterations:,} AURA simulations with seed "
+                            f"{mc_seed}..."
                         ):
                             baseline_result = st.session_state.results_df.reindex(
                                 matrix_to_calc.index
@@ -1408,10 +1664,16 @@ else:
                             baseline_ranks = pd.to_numeric(
                                 baseline_result["Rank"], errors="raise"
                             ).to_numpy(dtype=int)
-                            alternative_names = [str(value) for value in matrix_to_calc.index]
-                            criterion_names = [str(value) for value in matrix_to_calc.columns]
-                            criteria_types, target_values = types_and_targets_from_directions(
-                                matrix_to_calc.columns.tolist(), directions
+                            alternative_names = [
+                                str(value) for value in matrix_to_calc.index
+                            ]
+                            criterion_names = [
+                                str(value) for value in matrix_to_calc.columns
+                            ]
+                            criteria_types, target_values = (
+                                types_and_targets_from_directions(
+                                    matrix_to_calc.columns.tolist(), directions
+                                )
                             )
 
                             center_weights = (
@@ -1424,15 +1686,34 @@ else:
                                 center_weights=center_weights,
                                 concentration=float(mc_concentration),
                             )
-                            rank_matrix, correlations = simulate_aura_weights(
-                                matrix_to_calc,
-                                sampled_weights,
-                                criteria_types,
-                                target_val=target_values,
-                                alpha=float(parameters["alpha"]),
-                                p=int(parameters["p"]),
-                                baseline_ranks=baseline_ranks,
+
+                            progress = st.progress(
+                                0, text="Running Monte Carlo simulation..."
                             )
+
+                            def update_mc_progress(completed, total):
+                                progress.progress(
+                                    completed / total,
+                                    text=(
+                                        f"Running Monte Carlo simulation: "
+                                        f"{completed:,}/{total:,}"
+                                    ),
+                                )
+
+                            try:
+                                rank_matrix, correlations = simulate_aura_weights(
+                                    matrix_to_calc,
+                                    sampled_weights,
+                                    criteria_types,
+                                    target_val=target_values,
+                                    alpha=float(parameters["alpha"]),
+                                    p=int(parameters["p"]),
+                                    baseline_ranks=baseline_ranks,
+                                    chunk_size=500,
+                                    progress_callback=update_mc_progress,
+                                )
+                            finally:
+                                progress.empty()
 
                             summary_df = summarize_rank_simulation(
                                 alternative_names, baseline_ranks, rank_matrix
@@ -1443,9 +1724,16 @@ else:
                             rank_one = acceptability_df.loc[
                                 acceptability_df["Rank"] == 1,
                                 ["Alternative", "Probability_Pct"],
-                            ].rename(columns={"Probability_Pct": "Rank_1_Freq_Pct"})
+                            ].rename(
+                                columns={
+                                    "Probability_Pct": "Rank_1_Freq_Pct"
+                                }
+                            )
                             summary_df = summary_df.merge(
-                                rank_one, on="Alternative", how="left", validate="one_to_one"
+                                rank_one,
+                                on="Alternative",
+                                how="left",
+                                validate="one_to_one",
                             )
                             summary_df = summary_df[
                                 [
@@ -1461,186 +1749,287 @@ else:
                                 ]
                             ]
 
-                            finite_correlations = correlations[np.isfinite(correlations)]
+                            finite_correlations = correlations[
+                                np.isfinite(correlations)
+                            ]
                             average_spearman = (
                                 float(finite_correlations.mean())
                                 if finite_correlations.size
                                 else float("nan")
                             )
-                            baseline_winner_positions = np.flatnonzero(baseline_ranks == 1)
+                            baseline_winner_positions = np.flatnonzero(
+                                baseline_ranks == 1
+                            )
                             winner_retention = float(
                                 np.mean(
                                     np.any(
-                                        rank_matrix[:, baseline_winner_positions] == 1,
+                                        rank_matrix[
+                                            :, baseline_winner_positions
+                                        ]
+                                        == 1,
                                         axis=1,
                                     )
                                 )
                                 * 100
                             )
 
-                            rank_samples_df = pd.DataFrame(
-                                rank_matrix,
-                                columns=alternative_names,
-                                index=np.arange(1, int(mc_iterations) + 1),
-                            ).rename_axis("Iteration").reset_index()
-                            weight_samples_df = pd.DataFrame(
-                                sampled_weights,
-                                columns=criterion_names,
-                                index=np.arange(1, int(mc_iterations) + 1),
-                            ).rename_axis("Iteration").reset_index()
-
                             st.session_state.monte_carlo_result = {
                                 "summary": summary_df,
                                 "acceptability": acceptability_df,
-                                "rank_samples": rank_samples_df,
-                                "weight_samples": weight_samples_df,
+                                "rank_samples": np.asarray(
+                                    rank_matrix, dtype=np.uint16
+                                ),
+                                "weight_samples": np.asarray(
+                                    sampled_weights, dtype=np.float64
+                                ),
+                                "alternative_names": alternative_names,
+                                "criterion_names": criterion_names,
                                 "average_spearman": average_spearman,
                                 "winner_retention": winner_retention,
                                 "iterations": int(mc_iterations),
                                 "seed": int(mc_seed),
                                 "mode": mc_mode,
-                                "concentration": (
-                                    float(mc_concentration) if is_local_sampling else None
-                                ),
+                                "concentration": float(mc_concentration),
                             }
                             st.session_state.monte_carlo_fingerprint = (
-                                st.session_state.calculation_fingerprint
+                                current_mc_fingerprint
                             )
-                    except (MCDMValidationError, ValueError, KeyError) as exc:
-                        st.error(f"Monte Carlo simulation could not run: {exc}")
+                    except (
+                        MCDMValidationError,
+                        ValueError,
+                        KeyError,
+                        TypeError,
+                    ) as exc:
+                        st.error(
+                            f"Monte Carlo simulation could not run: {exc}"
+                        )
 
                 monte_carlo_result = st.session_state.monte_carlo_result
-                result_matches_baseline = (
-                    monte_carlo_result is not None
-                    and st.session_state.monte_carlo_fingerprint
-                    == st.session_state.calculation_fingerprint
-                )
-                if result_matches_baseline:
-                    st.markdown("---")
-                    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-                    average_spearman = monte_carlo_result["average_spearman"]
-                    metric_col1.metric(
-                        "Average Spearman correlation",
-                        f"{average_spearman:.4f}"
-                        if np.isfinite(average_spearman)
-                        else "N/A",
-                    )
-                    metric_col2.metric(
-                        "Baseline winner retains Rank 1",
-                        f"{monte_carlo_result['winner_retention']:.2f}%",
-                    )
-                    most_stable = monte_carlo_result["summary"].sort_values(
-                        ["Rank_SD", "Baseline_Rank"]
-                    ).iloc[0]
-                    metric_col3.metric("Most stable alternative", most_stable["Alternative"])
-                    metric_col4.metric(
-                        "Simulations", f"{monte_carlo_result['iterations']:,}"
-                    )
-
-                    settings_text = (
-                        f"Seed {monte_carlo_result['seed']} | "
-                        f"{monte_carlo_result['mode']}"
-                    )
-                    if monte_carlo_result["concentration"] is not None:
-                        settings_text += (
-                            f" | concentration {monte_carlo_result['concentration']:.1f}"
+                if monte_carlo_result is not None:
+                    if (
+                        st.session_state.monte_carlo_fingerprint
+                        != current_mc_fingerprint
+                    ):
+                        st.warning(
+                            "Monte Carlo settings changed—rerun the simulation "
+                            "to refresh the results."
                         )
-                    st.caption(settings_text)
-
-                    st.markdown("### Rank stability summary")
-                    st.dataframe(
-                        monte_carlo_result["summary"],
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-
-                    st.markdown("### Rank acceptability heatmap")
-                    st.caption(
-                        "Each cell is the percentage of simulations in which an alternative "
-                        "attained that rank. Hover for exact probabilities."
-                    )
-                    alternative_order = monte_carlo_result["summary"][
-                        "Alternative"
-                    ].tolist()
-                    rank_order = list(range(1, len(alternative_order) + 1))
-                    acceptability_chart = (
-                        alt.Chart(monte_carlo_result["acceptability"])
-                        .mark_rect()
-                        .encode(
-                            x=alt.X("Rank:O", sort=rank_order, title="Simulated rank"),
-                            y=alt.Y(
-                                "Alternative:N",
-                                sort=alternative_order,
-                                title="Alternative",
+                    else:
+                        st.markdown("---")
+                        metric_col1, metric_col2, metric_col3, metric_col4 = (
+                            st.columns(4)
+                        )
+                        average_spearman = monte_carlo_result[
+                            "average_spearman"
+                        ]
+                        metric_col1.metric(
+                            "Average Spearman correlation",
+                            (
+                                f"{average_spearman:.4f}"
+                                if np.isfinite(average_spearman)
+                                else "N/A"
                             ),
-                            color=alt.Color(
-                                "Probability_Pct:Q",
-                                title="Probability (%)",
-                                scale=alt.Scale(scheme="blues", domain=[0, 100]),
-                            ),
-                            tooltip=[
-                                "Alternative:N",
-                                "Rank:O",
-                                alt.Tooltip(
+                        )
+                        metric_col2.metric(
+                            "Baseline winner retains Rank 1",
+                            f"{monte_carlo_result['winner_retention']:.2f}%",
+                        )
+                        most_stable = monte_carlo_result["summary"].sort_values(
+                            ["Rank_SD", "Baseline_Rank"]
+                        ).iloc[0]
+                        metric_col3.metric(
+                            "Most stable alternative",
+                            most_stable["Alternative"],
+                        )
+                        metric_col4.metric(
+                            "Simulations",
+                            f"{monte_carlo_result['iterations']:,}",
+                        )
+
+                        st.caption(
+                            f"Seed {monte_carlo_result['seed']} | "
+                            f"{monte_carlo_result['mode']} | concentration "
+                            f"{monte_carlo_result['concentration']:.1f}"
+                        )
+
+                        st.markdown("### Rank stability summary")
+                        st.dataframe(
+                            monte_carlo_result["summary"],
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+
+                        st.markdown("### Rank acceptability heatmap")
+                        st.caption(
+                            "Each cell is the percentage of simulations in which an "
+                            "alternative attained that rank. Hover for exact probabilities."
+                        )
+                        alternative_order = monte_carlo_result["summary"][
+                            "Alternative"
+                        ].tolist()
+                        rank_order = list(
+                            range(1, len(alternative_order) + 1)
+                        )
+                        acceptability_chart = (
+                            alt.Chart(monte_carlo_result["acceptability"])
+                            .mark_rect()
+                            .encode(
+                                x=alt.X(
+                                    "Rank:O",
+                                    sort=rank_order,
+                                    title="Simulated rank",
+                                ),
+                                y=alt.Y(
+                                    "Alternative:N",
+                                    sort=alternative_order,
+                                    title="Alternative",
+                                ),
+                                color=alt.Color(
                                     "Probability_Pct:Q",
                                     title="Probability (%)",
-                                    format=".2f",
+                                    scale=alt.Scale(
+                                        scheme="blues", domain=[0, 100]
+                                    ),
                                 ),
-                            ],
+                                tooltip=[
+                                    "Alternative:N",
+                                    "Rank:O",
+                                    alt.Tooltip(
+                                        "Probability_Pct:Q",
+                                        title="Probability (%)",
+                                        format=".2f",
+                                    ),
+                                ],
+                            )
+                            .properties(
+                                height=max(
+                                    300, 30 * len(alternative_order)
+                                )
+                            )
                         )
-                        .properties(height=max(300, 30 * len(alternative_order)))
-                    )
-                    st.altair_chart(acceptability_chart, use_container_width=True)
+                        st.altair_chart(
+                            acceptability_chart, use_container_width=True
+                        )
 
-                    st.markdown("### Download simulation data")
-                    download_col1, download_col2, download_col3, download_col4 = st.columns(4)
-                    download_col1.download_button(
-                        "Summary CSV",
-                        convert_df_to_csv(monte_carlo_result["summary"]),
-                        "aura_monte_carlo_summary.csv",
-                        "text/csv",
-                        use_container_width=True,
-                    )
-                    download_col2.download_button(
-                        "Rank acceptability CSV",
-                        convert_df_to_csv(monte_carlo_result["acceptability"]),
-                        "aura_rank_acceptability.csv",
-                        "text/csv",
-                        use_container_width=True,
-                    )
-                    download_col3.download_button(
-                        "Raw ranks CSV",
-                        convert_df_to_csv(monte_carlo_result["rank_samples"]),
-                        "aura_monte_carlo_ranks.csv",
-                        "text/csv",
-                        use_container_width=True,
-                    )
-                    download_col4.download_button(
-                        "Sampled weights CSV",
-                        convert_df_to_csv(monte_carlo_result["weight_samples"]),
-                        "aura_monte_carlo_weights.csv",
-                        "text/csv",
-                        use_container_width=True,
-                    )
+                        st.markdown("### Download simulation data")
+                        download_col1, download_col2 = st.columns(2)
+                        download_col1.download_button(
+                            "Summary CSV",
+                            convert_df_to_csv(
+                                monte_carlo_result["summary"]
+                            ),
+                            "aura_monte_carlo_summary.csv",
+                            "text/csv",
+                            use_container_width=True,
+                        )
+                        download_col2.download_button(
+                            "Rank acceptability CSV",
+                            convert_df_to_csv(
+                                monte_carlo_result["acceptability"]
+                            ),
+                            "aura_rank_acceptability.csv",
+                            "text/csv",
+                            use_container_width=True,
+                        )
+
+                        prepare_raw_downloads = st.checkbox(
+                            "Prepare raw rank and weight CSV downloads",
+                            value=False,
+                            key="prepare_mc_raw_downloads",
+                            help=(
+                                "Raw tables are built only on request because large "
+                                "simulations can produce sizeable CSV files."
+                            ),
+                        )
+                        if prepare_raw_downloads:
+                            rank_samples_df = pd.DataFrame(
+                                monte_carlo_result["rank_samples"],
+                                columns=monte_carlo_result[
+                                    "alternative_names"
+                                ],
+                                index=np.arange(
+                                    1,
+                                    monte_carlo_result["iterations"] + 1,
+                                ),
+                            ).rename_axis("Iteration").reset_index()
+                            weight_samples_df = pd.DataFrame(
+                                monte_carlo_result["weight_samples"],
+                                columns=monte_carlo_result[
+                                    "criterion_names"
+                                ],
+                                index=np.arange(
+                                    1,
+                                    monte_carlo_result["iterations"] + 1,
+                                ),
+                            ).rename_axis("Iteration").reset_index()
+                            raw_col1, raw_col2 = st.columns(2)
+                            raw_col1.download_button(
+                                "Raw ranks CSV",
+                                convert_df_to_csv(rank_samples_df),
+                                "aura_monte_carlo_ranks.csv",
+                                "text/csv",
+                                use_container_width=True,
+                            )
+                            raw_col2.download_button(
+                                "Sampled weights CSV",
+                                convert_df_to_csv(weight_samples_df),
+                                "aura_monte_carlo_weights.csv",
+                                "text/csv",
+                                use_container_width=True,
+                            )
 
         # --- COMPARATIVE ANALYSIS TAB ---
         with tab_compare:
             if not st.session_state.calculated:
-                st.info("Comparative analysis will appear here after you run the calculation in the Setup tab.")
+                st.info(
+                    "Comparative analysis will appear here after you run the "
+                    "calculation in the Setup tab."
+                )
             elif mcdm_method == "Fuzzy ARAS":
-                st.warning("Comparative Analysis is available for crisp decision matrices. Please select a crisp method in the global settings to use this feature.")
+                st.warning(
+                    "Comparative Analysis is available for crisp decision matrices. "
+                    "Please select a crisp method in the global settings to use this "
+                    "feature."
+                )
             else:
                 st.subheader("⚖️ Comparative Analysis")
-                st.markdown("Select multiple MCDM methods below to compare their final rankings side-by-side using the current matrix and criteria weights.")
-                
-                available_compare_methods = ["AURA", "ARAS", "SYAI", "ARIE", "MOORA", "TOPSIS", "SAW", "VIKOR"]
+                st.markdown(
+                    "Select multiple MCDM methods below to compare their final "
+                    "rankings side-by-side using the current matrix and criteria weights."
+                )
+
+                available_compare_methods = [
+                    "AURA",
+                    "ARAS",
+                    "SYAI",
+                    "ARIE",
+                    "MOORA",
+                    "TOPSIS",
+                    "SAW",
+                    "VIKOR",
+                ]
                 selected_compare_methods = st.multiselect(
                     "Select Methods to Compare",
                     available_compare_methods,
                     default=available_compare_methods,
+                    key="comparison_methods",
                 )
-                
-                if selected_compare_methods:
+                current_comparison_fingerprint = analysis_fingerprint(
+                    baseline_fingerprint=st.session_state.calculation_fingerprint,
+                    analysis_name="method_comparison",
+                    controls={"methods": selected_compare_methods},
+                )
+
+                run_comparison = st.button(
+                    "Run Method Comparison",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=not selected_compare_methods,
+                    key="run_method_comparison",
+                )
+                if run_comparison:
+                    st.session_state.comparison_result = None
+                    st.session_state.comparison_fingerprint = None
                     try:
                         comp_df, excluded_methods = run_method_comparison(
                             selected_compare_methods,
@@ -1650,89 +2039,235 @@ else:
                             parameters=parameters,
                         )
                     except Exception as exc:
-                        st.error(f"Comparative analysis could not run: {exc}")
-                        comp_df, excluded_methods = pd.DataFrame(), {}
+                        st.error(
+                            f"Comparative analysis could not run: {exc}"
+                        )
+                    else:
+                        st.session_state.comparison_result = {
+                            "rankings": comp_df,
+                            "excluded": excluded_methods,
+                        }
+                        st.session_state.comparison_fingerprint = (
+                            current_comparison_fingerprint
+                        )
 
+                comparison_output = st.session_state.comparison_result
+                if comparison_output is None:
+                    st.info(
+                        "Choose the methods above, then click Run Method Comparison."
+                    )
+                elif (
+                    st.session_state.comparison_fingerprint
+                    != current_comparison_fingerprint
+                ):
+                    st.warning(
+                        "Comparison settings changed—rerun the comparison to "
+                        "refresh the results."
+                    )
+                else:
+                    comp_df = comparison_output["rankings"]
+                    excluded_methods = comparison_output["excluded"]
                     for excluded_method, reason in excluded_methods.items():
                         st.info(f"**{excluded_method} excluded:** {reason}")
 
                     active_compare_methods = list(comp_df.columns)
-                    if not comp_df.empty:
-                        
+                    if comp_df.empty:
+                        st.info(
+                            "None of the selected methods supports the current "
+                            "criterion configuration."
+                        )
+                    else:
                         st.markdown("### 🏆 Method Ranking Comparison")
-                        st.dataframe(comp_df,
+                        st.dataframe(
+                            comp_df,
                             use_container_width=True,
                             column_config={
                                 method: st.column_config.NumberColumn(
-                                    method, format="%d", help=f"Rank according to {method}"
-                                ) 
+                                    method,
+                                    format="%d",
+                                    help=f"Rank according to {method}",
+                                )
                                 for method in comp_df.columns
-                            }
+                            },
                         )
-                        
-                        # Display Winning Alternatives count
+
                         st.markdown("### 🥇 Top Performing Alternatives")
-                        winning_alts = comp_df[comp_df == 1].count(axis=1) # count how many times each alternative got Rank 1
-                        winning_alts = winning_alts[winning_alts > 0].sort_values(ascending=False)
+                        winning_alts = comp_df[comp_df == 1].count(axis=1)
+                        winning_alts = winning_alts[
+                            winning_alts > 0
+                        ].sort_values(ascending=False)
                         if not winning_alts.empty:
                             winner_df = winning_alts.reset_index()
-                            winner_df.columns = ['Alternative', 'Times Ranked #1']
-                            winner_chart = alt.Chart(winner_df).mark_bar(color='#FFD700').encode(
-                                x=alt.X('Alternative:N', sort='-y'),
-                                y=alt.Y('Times Ranked #1:Q', title="Times Ranked #1"),
-                                tooltip=['Alternative', 'Times Ranked #1']
-                            ).properties(height=250, title="Number of #1 Ranks per Alternative")
-                            st.altair_chart(winner_chart, use_container_width=True)
-                        else:
-                            st.info("No single alternative clearly dominates rank #1 across all methods.")
-                            
-                        # Bump chart visualizing rank shifts
-                        comp_df_reset = comp_df.reset_index()
-                        if comp_df_reset.columns[0] != 'Alternative':
-                            comp_df_reset.rename(columns={comp_df_reset.columns[0]: 'Alternative'}, inplace=True)
-                        comp_melted = comp_df_reset.melt(id_vars='Alternative', var_name='Method', value_name='Rank')
-                        
-                        unique_alts_comp = sorted(comp_melted['Alternative'].unique(), key=natural_sort_key)
-                        
-                        chart = alt.Chart(comp_melted).mark_line(point=alt.OverlayMarkDef(filled=False, fill="white", size=100)).encode(
-                            x=alt.X('Method:N', title='MCDM Method', sort=active_compare_methods),
-                            y=alt.Y('Rank:O', title='Rank', sort='descending'),
-                            color=alt.Color('Alternative:N', sort=unique_alts_comp, legend=alt.Legend(title="Alternatives", orient='right')),
-                            tooltip=['Alternative', 'Method', 'Rank']
-                        ).properties(height=400, title="Alternative Ranking Shifts Across Methods").interactive()
-                        
-                        st.altair_chart(chart, use_container_width=True)
-                        
-                        # Spearman Rank Correlation Heatmap
-                        if len(active_compare_methods) > 1:
-                            st.markdown("---")
-                            st.markdown("### 🔗 Mathematical Rank Correlation (Spearman's $\\rho$)")
-                            st.markdown("A higher value (closer to 1.0) indicates that the methods produce broadly similar relative ranking sequences.")
-                            correlation_matrix = comp_df.corr(method='spearman')
-                            
-                            # Prepare data for Altair
-                            corr_reset = correlation_matrix.reset_index().melt('index')
-                            corr_reset.columns = ['Method 1', 'Method 2', 'Correlation']
-                            
-                            base = alt.Chart(corr_reset).encode(
-                                x=alt.X('Method 1:O', sort=active_compare_methods),
-                                y=alt.Y('Method 2:O', sort=active_compare_methods),
-                            )
-
-                            heatmap = base.mark_rect().encode(
-                                color=alt.Color('Correlation:Q', scale=alt.Scale(domain=[-1, 1], scheme='redblue'), title="Spearman's ρ"),
-                                tooltip=['Method 1', 'Method 2', alt.Tooltip('Correlation', format='.3f')]
-                            )
-
-                            text = base.mark_text(baseline='middle').encode(
-                                text=alt.Text('Correlation:Q', format='.2f'),
-                                color=alt.condition(
-                                    alt.datum.Correlation > 0.5,
-                                    alt.value('white'),
-                                    alt.value('black')
+                            winner_df.columns = [
+                                "Alternative",
+                                "Times Ranked #1",
+                            ]
+                            winner_chart = (
+                                alt.Chart(winner_df)
+                                .mark_bar(color="#FFD700")
+                                .encode(
+                                    x=alt.X(
+                                        "Alternative:N", sort="-y"
+                                    ),
+                                    y=alt.Y(
+                                        "Times Ranked #1:Q",
+                                        title="Times Ranked #1",
+                                    ),
+                                    tooltip=[
+                                        "Alternative",
+                                        "Times Ranked #1",
+                                    ],
+                                )
+                                .properties(
+                                    height=250,
+                                    title=(
+                                        "Number of #1 Ranks per Alternative"
+                                    ),
                                 )
                             )
+                            st.altair_chart(
+                                winner_chart, use_container_width=True
+                            )
+                        else:
+                            st.info(
+                                "No alternative attained rank #1 across the "
+                                "selected methods."
+                            )
 
-                            corr_chart = (heatmap + text).properties(height=400, title="Method vs Method Spearman's Rank Correlation")
-                            st.altair_chart(corr_chart, use_container_width=True)
+                        comp_df_reset = comp_df.reset_index()
+                        if comp_df_reset.columns[0] != "Alternative":
+                            comp_df_reset.rename(
+                                columns={
+                                    comp_df_reset.columns[0]: "Alternative"
+                                },
+                                inplace=True,
+                            )
+                        comp_melted = comp_df_reset.melt(
+                            id_vars="Alternative",
+                            var_name="Method",
+                            value_name="Rank",
+                        )
+                        unique_alts_comp = sorted(
+                            comp_melted["Alternative"].unique(),
+                            key=natural_sort_key,
+                        )
+                        comparison_chart = (
+                            alt.Chart(comp_melted)
+                            .mark_line(
+                                point=alt.OverlayMarkDef(
+                                    filled=False,
+                                    fill="white",
+                                    size=100,
+                                )
+                            )
+                            .encode(
+                                x=alt.X(
+                                    "Method:N",
+                                    title="MCDM Method",
+                                    sort=active_compare_methods,
+                                ),
+                                y=alt.Y(
+                                    "Rank:O",
+                                    title="Rank",
+                                    sort="descending",
+                                ),
+                                color=alt.Color(
+                                    "Alternative:N",
+                                    sort=unique_alts_comp,
+                                    legend=alt.Legend(
+                                        title="Alternatives",
+                                        orient="right",
+                                    ),
+                                ),
+                                tooltip=[
+                                    "Alternative",
+                                    "Method",
+                                    "Rank",
+                                ],
+                            )
+                            .properties(
+                                height=400,
+                                title=(
+                                    "Alternative Ranking Shifts Across Methods"
+                                ),
+                            )
+                            .interactive()
+                        )
+                        st.altair_chart(
+                            comparison_chart, use_container_width=True
+                        )
+
+                        if len(active_compare_methods) > 1:
+                            st.markdown("---")
+                            st.markdown(
+                                "### 🔗 Mathematical Rank Correlation "
+                                "(Spearman's $\\rho$)"
+                            )
+                            st.markdown(
+                                "A higher value (closer to 1.0) indicates that "
+                                "the methods produce broadly similar relative "
+                                "ranking sequences."
+                            )
+                            correlation_matrix = comp_df.corr(
+                                method="spearman"
+                            )
+                            corr_reset = correlation_matrix.reset_index().melt(
+                                "index"
+                            )
+                            corr_reset.columns = [
+                                "Method 1",
+                                "Method 2",
+                                "Correlation",
+                            ]
+                            base = alt.Chart(corr_reset).encode(
+                                x=alt.X(
+                                    "Method 1:O",
+                                    sort=active_compare_methods,
+                                ),
+                                y=alt.Y(
+                                    "Method 2:O",
+                                    sort=active_compare_methods,
+                                ),
+                            )
+                            heatmap = base.mark_rect().encode(
+                                color=alt.Color(
+                                    "Correlation:Q",
+                                    scale=alt.Scale(
+                                        domain=[-1, 1],
+                                        scheme="redblue",
+                                    ),
+                                    title="Spearman's ρ",
+                                ),
+                                tooltip=[
+                                    "Method 1",
+                                    "Method 2",
+                                    alt.Tooltip(
+                                        "Correlation", format=".3f"
+                                    ),
+                                ],
+                            )
+                            text_layer = base.mark_text(
+                                baseline="middle"
+                            ).encode(
+                                text=alt.Text(
+                                    "Correlation:Q", format=".2f"
+                                ),
+                                color=alt.condition(
+                                    alt.datum.Correlation > 0.5,
+                                    alt.value("white"),
+                                    alt.value("black"),
+                                ),
+                            )
+                            corr_chart = (
+                                heatmap + text_layer
+                            ).properties(
+                                height=400,
+                                title=(
+                                    "Method vs Method Spearman's Rank "
+                                    "Correlation"
+                                ),
+                            )
+                            st.altair_chart(
+                                corr_chart, use_container_width=True
+                            )
 
