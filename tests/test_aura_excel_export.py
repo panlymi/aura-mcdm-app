@@ -90,7 +90,9 @@ def test_every_aura_stage_is_driven_by_live_excel_formulas():
     assert sheet.cell(first_result_row, 5).value.startswith("=B")
     assert "$C$" in sheet.cell(first_result_row, 5).value
     assert "$B$5" in sheet.cell(first_result_row, 8).value
-    assert sheet.cell(first_result_row, 9).value.startswith("=RANK.EQ(")
+    rank_formula = sheet.cell(first_result_row, 9).value
+    assert rank_formula.startswith("=RANK(")
+    assert "RANK.EQ" not in rank_formula
 
     formulas = [
         cell.value

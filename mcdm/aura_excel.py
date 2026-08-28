@@ -523,7 +523,7 @@ def _build_formula_sheet(
         sheet.cell(
             row,
             9,
-            f"=RANK.EQ(H{row},$H${distances_data_start}:$H${distances_data_end},1)",
+            f"=RANK(H{row},$H${distances_data_start}:$H${distances_data_end},1)",
         )
         sheet.cell(row, 9).number_format = "0"
     sheet.cell(distances_data_start, 8).comment = Comment(
@@ -825,7 +825,7 @@ def _build_formula_guide_sheet(workbook: Workbook) -> None:
             "Rank_i",
             "ascending competition rank of U_i",
             "Rank 1 is the smallest utility score; ties retain the same rank.",
-            "RANK.EQ(utility, utility range, 1)",
+            "RANK(utility, utility range, 1)",
         ),
     ]
     for row_index, values in enumerate(rows, start=5):
