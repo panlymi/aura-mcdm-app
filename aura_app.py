@@ -6,7 +6,11 @@ import numpy as np
 from entropy_calculator import calculate_entropy_weights
 from merec_calculator import calculate_merec_weights
 from mcdm.analysis import calculate_method, compare_methods as run_method_comparison
-from mcdm.aura_excel import build_aura_excel_workbook
+from mcdm.aura_excel import (
+    AURA_EXCEL_EXPORT_FILENAME,
+    AURA_EXCEL_EXPORT_REVISION,
+    build_aura_excel_workbook,
+)
 from mcdm.criteria import CriterionType, METHOD_CAPABILITIES
 from mcdm.presentation import RESULT_PRESENTATION
 from mcdm.ranking import natural_sort_key
@@ -48,8 +52,12 @@ def build_aura_excel_download(
     directions: dict,
     alpha: float,
     p: int,
+    export_revision: str,
 ) -> bytes:
     """Build a cached, formula-rich AURA workbook for the current calculation."""
+
+    if export_revision != AURA_EXCEL_EXPORT_REVISION:
+        raise ValueError("The requested AURA workbook revision is no longer supported.")
 
     return build_aura_excel_workbook(
         matrix,
@@ -678,11 +686,12 @@ else:
                             dict(directions),
                             float(parameters["alpha"]),
                             int(parameters["p"]),
+                            AURA_EXCEL_EXPORT_REVISION,
                         )
                         st.download_button(
                             "📗 Download Complete AURA Excel Workbook",
                             data=aura_workbook,
-                            file_name="aura_complete_formula_calculation.xlsx",
+                            file_name=AURA_EXCEL_EXPORT_FILENAME,
                             mime=(
                                 "application/vnd.openxmlformats-officedocument."
                                 "spreadsheetml.sheet"

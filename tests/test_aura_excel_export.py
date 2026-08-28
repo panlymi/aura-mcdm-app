@@ -7,7 +7,11 @@ import pandas as pd
 from openpyxl import load_workbook
 
 from aura_calculator import calculate_aura
-from mcdm.aura_excel import build_aura_excel_workbook
+from mcdm.aura_excel import (
+    AURA_EXCEL_EXPORT_FILENAME,
+    AURA_EXCEL_EXPORT_REVISION,
+    build_aura_excel_workbook,
+)
 
 
 MATRIX = pd.DataFrame(
@@ -53,6 +57,8 @@ def test_export_contains_formula_model_verified_values_and_formula_guide():
     assert workbook.calculation.calcMode == "auto"
     assert workbook.calculation.fullCalcOnLoad is True
     assert workbook.calculation.forceFullCalc is True
+    assert workbook.properties.version == AURA_EXCEL_EXPORT_REVISION
+    assert AURA_EXCEL_EXPORT_FILENAME == "aura_complete_formula_calculation_v3.xlsx"
 
 
 def test_every_aura_stage_is_driven_by_live_excel_formulas():
@@ -93,6 +99,7 @@ def test_every_aura_stage_is_driven_by_live_excel_formulas():
     rank_formula = sheet.cell(first_result_row, 9).value
     assert rank_formula.startswith("=RANK(")
     assert "RANK.EQ" not in rank_formula
+    assert "@" not in rank_formula
 
     formulas = [
         cell.value
@@ -151,7 +158,27 @@ def test_reference_style_is_applied_to_weights_and_criterion_types():
     assert sheet.cell(header_row, 3).fill.fgColor.rgb.endswith("FF3B30")
     assert sheet.cell(header_row, 4).fill.fgColor.rgb.endswith("F4B183")
     assert sheet.sheet_view.showGridLines is False
-    assert sheet.freeze_panes is not None
+    assert sheet.freeze_panes == "B1"
+
+
+def test_crisp_template_values_fit_without_hash_placeholders():
+    matrix = pd.DataFrame(
+        {
+            "Cost": [20_000.0, 25_000.0, 18_000.0],
+            "Quality": [8.0, 9.0, 6.0],
+            "Durability": [5.0, 7.0, 4.0],
+        },
+        index=["Car A", "Car B", "Car C"],
+    )
+    content = build_aura_excel_workbook(
+        matrix,
+        {"Cost": 0.3, "Quality": 0.3, "Durability": 0.4},
+        {"Cost": "minimize", "Quality": "maximize", "Durability": "maximize"},
+    )
+    workbook = load_workbook(BytesIO(content), data_only=False)
+    sheet = workbook["AURA"]
+
+    assert sheet.column_dimensions["B"].width >= len("25000.000000000") + 2
 
 
 def test_user_controlled_labels_are_stored_as_text_not_excel_formulas():
