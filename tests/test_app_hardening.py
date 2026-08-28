@@ -123,6 +123,25 @@ def test_uppercase_csv_calculates_and_displays_every_rank_one_tie():
     assert any("Next-ranked alternative(s): A3" in item.value for item in app.caption)
 
 
+def test_complete_formula_excel_download_is_available_only_for_aura():
+    aura_app = _app_with_upload(CRISP_MATRIX)
+    _run_baseline(aura_app)
+
+    aura_downloads = {
+        button.label: button for button in aura_app.download_button
+    }
+    assert not aura_app.exception
+    assert "📗 Download Complete AURA Excel Workbook" in aura_downloads
+    assert aura_downloads["📗 Download Complete AURA Excel Workbook"].proto.url
+
+    topsis_app = _app_with_upload(CRISP_MATRIX, method="TOPSIS")
+    _run_baseline(topsis_app, "TOPSIS")
+    assert not topsis_app.exception
+    assert "📗 Download Complete AURA Excel Workbook" not in [
+        button.label for button in topsis_app.download_button
+    ]
+
+
 def test_sensitivity_and_comparison_run_only_on_request_and_become_stale():
     app = _app_with_upload(CRISP_MATRIX)
     _run_baseline(app)

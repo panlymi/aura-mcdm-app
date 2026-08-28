@@ -95,6 +95,25 @@ Rules enforced by the application:
 - fuzzy weights must match the criteria exactly and have a positive total;
 - the SYAI trade-off parameter uses the published open interval `0 < beta < 1`.
 
+## Complete AURA Excel export
+
+After an AURA calculation, the Results tab provides a complete `.xlsx`
+workbook rather than a flat ranking table. The export contains:
+
+- an **AURA** sheet with live Excel formulas for normalization, weighting,
+  PIS/NIS/average solutions, raw and corrected distances, correction factors,
+  utility scores, and competition ranks;
+- a **Verified Values** sheet containing the canonical numerical result of every
+  calculation stage, so the formula model remains auditable in viewers that do
+  not recalculate workbooks; and
+- a **Formula Guide** sheet with the symbolic equations, interpretation, and
+  method reference.
+
+The workbook follows the supplied research-sheet visual convention: blue weight
+rows, yellow benefit/identity cells, red cost headers, orange target headers,
+bordered calculation grids, and visible formulas when a derived cell is selected.
+Excel is instructed to recalculate the live model automatically when opened.
+
 ## Monte Carlo simulation in Streamlit
 
 After running any non-fuzzy method's baseline calculation, open the **Monte

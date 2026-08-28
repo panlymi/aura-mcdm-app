@@ -6,6 +6,7 @@ import numpy as np
 from entropy_calculator import calculate_entropy_weights
 from merec_calculator import calculate_merec_weights
 from mcdm.analysis import calculate_method, compare_methods as run_method_comparison
+from mcdm.aura_excel import build_aura_excel_workbook
 from mcdm.criteria import CriterionType, METHOD_CAPABILITIES
 from mcdm.presentation import RESULT_PRESENTATION
 from mcdm.ranking import natural_sort_key
@@ -38,6 +39,25 @@ def load_uploaded_matrix(filename: str, content: bytes) -> pd.DataFrame:
     """Parse and validate an upload using immutable bytes as the cache key."""
 
     return load_decision_matrix(filename, content)
+
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def build_aura_excel_download(
+    matrix: pd.DataFrame,
+    weights: dict,
+    directions: dict,
+    alpha: float,
+    p: int,
+) -> bytes:
+    """Build a cached, formula-rich AURA workbook for the current calculation."""
+
+    return build_aura_excel_workbook(
+        matrix,
+        weights,
+        directions,
+        alpha=alpha,
+        p=p,
+    )
 
 st.set_page_config(page_title="MCDM Calculator", layout="wide", page_icon="📊")
 
@@ -643,6 +663,35 @@ else:
                 
                 st.subheader("Full Rankings Data")
                 st.dataframe(display_df, use_container_width=True)
+
+                if mcdm_method == "AURA":
+                    st.markdown("### Complete Excel calculation")
+                    st.caption(
+                        "Download every AURA input, intermediate value, live Excel "
+                        "formula, correction factor, utility score, and rank. The "
+                        "workbook also includes a verified-value snapshot and formula guide."
+                    )
+                    try:
+                        aura_workbook = build_aura_excel_download(
+                            matrix_to_calc,
+                            dict(weights),
+                            dict(directions),
+                            float(parameters["alpha"]),
+                            int(parameters["p"]),
+                        )
+                        st.download_button(
+                            "📗 Download Complete AURA Excel Workbook",
+                            data=aura_workbook,
+                            file_name="aura_complete_formula_calculation.xlsx",
+                            mime=(
+                                "application/vnd.openxmlformats-officedocument."
+                                "spreadsheetml.sheet"
+                            ),
+                            use_container_width=True,
+                            key="download_complete_aura_excel",
+                        )
+                    except (MCDMValidationError, ValueError, TypeError, KeyError) as exc:
+                        st.error(f"The AURA Excel workbook could not be generated: {exc}")
 
         # --- DETAILED STEPS TAB ---
         with tab_steps:

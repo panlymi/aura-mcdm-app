@@ -32,3 +32,5 @@ MCDA_*.png
 Figure_*.png
 report.json
 artifacts/generated/
+outputs/
+.artifact_runtime/
