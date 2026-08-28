@@ -42,6 +42,14 @@ _HEADER_FONT = Font(name="Courier New", size=10, bold=True, color="000000")
 _TITLE_FONT = Font(name="Courier New", size=15, bold=True, color="FFFFFF")
 _ILLEGAL_EXCEL_TEXT = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
 
+# Increment this whenever the generated workbook changes.  The Streamlit app
+# includes it in the cache key so a deployment cannot serve older workbook
+# bytes merely because the calculation inputs are unchanged.
+AURA_EXCEL_EXPORT_REVISION = "v3"
+AURA_EXCEL_EXPORT_FILENAME = (
+    f"aura_complete_formula_calculation_{AURA_EXCEL_EXPORT_REVISION}.xlsx"
+)
+
 
 def _safe_excel_text(value: Any) -> str:
     """Return user text that Excel will store as text, never as a formula."""
@@ -530,7 +538,9 @@ def _build_formula_sheet(
         "Lower AURA utility scores are preferred. Alpha is read from B5.", "User"
     )
 
-    sheet.freeze_panes = f"B{raw_data_start}"
+    # Keep the alternative labels visible without pinning the whole input
+    # section above the matrix, which otherwise looks like a split screen.
+    sheet.freeze_panes = "B1"
     sheet.auto_filter.ref = (
         f"A{distances_header_row}:I{distances_data_end}"
     )
@@ -547,7 +557,13 @@ def _build_formula_sheet(
     )
     for column_index, criterion in enumerate(columns, start=2):
         letter = get_column_letter(column_index)
-        sheet.column_dimensions[letter].width = max(13, min(25, len(criterion) + 3))
+        raw_value_width = max(
+            len(f"{float(value):.9f}") for value in frame[criterion]
+        )
+        sheet.column_dimensions[letter].width = max(
+            15,
+            min(30, max(len(criterion) + 3, raw_value_width + 2)),
+        )
     for column_index in range(last_matrix_column + 1, 10):
         sheet.column_dimensions[get_column_letter(column_index)].width = 17
     for row in range(1, distances_data_end + 1):
@@ -885,8 +901,10 @@ def build_aura_excel_workbook(
     workbook.properties.creator = "AURA MCDM Application"
     workbook.properties.title = "Complete AURA Formula-Driven Calculation"
     workbook.properties.subject = "Auditable AURA decision model"
+    workbook.properties.version = AURA_EXCEL_EXPORT_REVISION
     workbook.properties.description = (
-        "Live Excel formulas plus canonical numerical values for every AURA calculation step."
+        "Live Excel formulas plus canonical numerical values for every AURA "
+        f"calculation step. Export revision {AURA_EXCEL_EXPORT_REVISION}."
     )
     workbook.calculation.calcMode = "auto"
     workbook.calculation.fullCalcOnLoad = True
@@ -917,4 +935,8 @@ def build_aura_excel_workbook(
     return output.getvalue()
 
 
-__all__ = ["build_aura_excel_workbook"]
+__all__ = [
+    "AURA_EXCEL_EXPORT_FILENAME",
+    "AURA_EXCEL_EXPORT_REVISION",
+    "build_aura_excel_workbook",
+]
