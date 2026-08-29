@@ -198,6 +198,8 @@ if "prev_upload_fingerprint" not in st.session_state:
 if st.session_state.prev_upload_fingerprint != current_upload_fingerprint:
     reset_derived_state(st.session_state)
     st.session_state.prev_upload_fingerprint = current_upload_fingerprint
+    st.session_state.pop("last_configured_directions", None)
+    st.session_state["weights_editor_key"] = st.session_state.get("weights_editor_key", 0) + 1
 
 # --- MAIN APP LOGIC ---
 if uploaded_file is None:
@@ -312,31 +314,54 @@ else:
                 parsed_weights = []
                 
                 if weight_calc_method == "Manual / Equal Weights":
-                    with st.expander("💡 Bulk Quick-Fill Weights", expanded=False):
-                        st.markdown("Paste all weights separated by commas, spaces, or tabs.")
-                        bulk_weights_input = st.text_area("Bulk Weights", key="bulk_weights", label_visibility="collapsed", help="e.g. 0.2, 0.3, 0.1, 0.4")
-                        if bulk_weights_input:
-                            import re
-                            try:
-                                parsed_weights = [float(x) for x in re.split(r'[,\s]+', bulk_weights_input.strip()) if x]
-                                if len(parsed_weights) == num_criteria:
-                                    st.success("Weights parsed successfully!")
-                                else:
-                                    st.warning(f"Expected {num_criteria} weights, found {len(parsed_weights)}.")
+                    col_eq, col_bulk = st.columns([1, 2])
+                    with col_eq:
+                        if st.button("⚖️ Set Equal Weights", use_container_width=True, help="Automatically set equal weights (1/N) across all criteria"):
+                            st.session_state["weights_editor_key"] = st.session_state.get("weights_editor_key", 0) + 1
+                            if "bulk_weights" in st.session_state:
+                                st.session_state["bulk_weights"] = ""
+                            st.rerun()
+                    with col_bulk:
+                        with st.expander("💡 Bulk Quick-Fill Weights", expanded=False):
+                            st.markdown("Paste all weights separated by commas, spaces, or tabs.")
+                            bulk_weights_input = st.text_area("Bulk Weights", key="bulk_weights", label_visibility="collapsed", help="e.g. 0.2, 0.3, 0.1, 0.4")
+                            if bulk_weights_input:
+                                import re
+                                try:
+                                    parsed_weights = [float(x) for x in re.split(r'[,\s]+', bulk_weights_input.strip()) if x]
+                                    if len(parsed_weights) == num_criteria:
+                                        st.success("Weights parsed successfully!")
+                                    else:
+                                        st.warning(f"Expected {num_criteria} weights, found {len(parsed_weights)}.")
+                                        parsed_weights = []
+                                except ValueError:
+                                    st.error("Invalid numbers detected. Please use format like: 0.2, 0.3, 0.1")
                                     parsed_weights = []
-                            except ValueError:
-                                st.error("Invalid numbers detected. Please use format like: 0.2, 0.3, 0.1")
-                                parsed_weights = []
 
                 weight_init_values = [default_val] * num_criteria
                 if len(parsed_weights) == num_criteria:
                     weight_init_values = parsed_weights
-                
+
+                last_dirs = st.session_state.get("last_configured_directions", {})
+                dir_col_init = []
+                target_col_init = []
+                for c in criteria:
+                    d = last_dirs.get(c, "maximize")
+                    if isinstance(d, dict) and d.get("type") == "target":
+                        dir_col_init.append("target")
+                        target_col_init.append(float(d.get("value", 0.0)))
+                    elif d in direction_options:
+                        dir_col_init.append(d)
+                        target_col_init.append(0.0)
+                    else:
+                        dir_col_init.append("maximize")
+                        target_col_init.append(0.0)
+
                 weights_df_init = pd.DataFrame({
                     "Criterion": criteria,
                     "Weight": weight_init_values,
-                    "Direction": "maximize",
-                    "Target Value": 0.0
+                    "Direction": dir_col_init,
+                    "Target Value": target_col_init
                 })
                 
                 if weight_calc_method in ["Entropy Weight Method (Objective)", "MEREC (Objective)"]:
@@ -367,7 +392,8 @@ else:
                         },
                         hide_index=True,
                         disabled=["Weight"],
-                        use_container_width=True
+                        use_container_width=True,
+                        key=f"objective_weights_editor_{st.session_state.get('weights_editor_key', 0)}"
                     )
                 else:
                     edited_weights_df = st.data_editor(
@@ -379,7 +405,8 @@ else:
                             "Target Value": st.column_config.NumberColumn("Target Value (If 'target')", format="%.4f", step=None)
                         },
                         hide_index=True,
-                        use_container_width=True
+                        use_container_width=True,
+                        key=f"weights_editor_{st.session_state.get('weights_editor_key', 0)}"
                     )
                 
                 directions = {}
@@ -390,6 +417,7 @@ else:
                         directions[crit] = {"type": "target", "value": row["Target Value"]}
                     else:
                         directions[crit] = direction_val
+                st.session_state["last_configured_directions"] = directions
                         
                 objective_has_target = (
                     weight_calc_method
