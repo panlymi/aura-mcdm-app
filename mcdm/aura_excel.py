@@ -42,13 +42,13 @@ _HEADER_FONT = Font(name="Courier New", size=10, bold=True, color="000000")
 _TITLE_FONT = Font(name="Courier New", size=15, bold=True, color="FFFFFF")
 _ILLEGAL_EXCEL_TEXT = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
 
-_DECIMAL_FORMAT = "0.#########"
-_WEIGHT_FORMAT = "0.######"
+_DECIMAL_FORMAT = "General"
+_WEIGHT_FORMAT = "General"
 
 # Increment this whenever the generated workbook changes.  The Streamlit app
 # includes it in the cache key so a deployment cannot serve older workbook
 # bytes merely because the calculation inputs are unchanged.
-AURA_EXCEL_EXPORT_REVISION = "v5"
+AURA_EXCEL_EXPORT_REVISION = "v6"
 AURA_EXCEL_EXPORT_FILENAME = (
     f"aura_complete_formula_calculation_{AURA_EXCEL_EXPORT_REVISION}.xlsx"
 )
@@ -240,7 +240,7 @@ def _build_formula_sheet(
         sheet.cell(row, 1, label)
         sheet.cell(row, 2, value)
         sheet.cell(row, 3, description)
-    sheet.cell(5, 2).number_format = "0.0000"
+    sheet.cell(5, 2).number_format = _DECIMAL_FORMAT
     sheet.cell(5, 2).fill = _INPUT_FILL
     sheet.cell(6, 2).fill = _INPUT_FILL
     _style_grid(sheet, 5, 8, 1, 4)
