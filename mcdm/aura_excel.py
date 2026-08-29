@@ -49,7 +49,7 @@ _WEIGHT_FORMAT = "General"
 # Increment this whenever the generated workbook changes.  The Streamlit app
 # includes it in the cache key so a deployment cannot serve older workbook
 # bytes merely because the calculation inputs are unchanged.
-AURA_EXCEL_EXPORT_REVISION = "v7"
+AURA_EXCEL_EXPORT_REVISION = "v8"
 AURA_EXCEL_EXPORT_FILENAME = (
     f"aura_complete_formula_calculation_{AURA_EXCEL_EXPORT_REVISION}.xlsx"
 )
@@ -574,20 +574,87 @@ def _build_formula_sheet(
         sheet.cell(
             row,
             9,
-            f"=RANK(H{row},$H${distances_data_start}:$H${distances_data_end},1)",
+            f"=RANK(H{row},$H${distances_data_start}:$H${distances_data_end},1)+"
+            f"COUNTIF($H${distances_data_start}:H{row},H{row})-1",
         )
         sheet.cell(row, 9).number_format = "0"
     sheet.cell(distances_data_start, 8).comment = Comment(
         "Lower AURA utility scores are preferred. Alpha is read from B5.", "User"
     )
 
+    ranking_title_row = distances_data_end + 3
+    ranking_header_row = ranking_title_row + 1
+    ranking_data_start = ranking_title_row + 2
+    ranking_data_end = ranking_data_start + alternatives_count - 1
+
+    _set_section_title(
+        sheet,
+        ranking_title_row,
+        6,
+        "Final Ranking — Sorted by Rank",
+    )
+    ranking_headers = [
+        "Alternative",
+        "D+ (PIS)",
+        "D- (NIS)",
+        "D_avg (AS)",
+        "Utility Score",
+        "Rank",
+    ]
+    for column_index, header in enumerate(ranking_headers, start=1):
+        sheet.cell(ranking_header_row, column_index, header)
+        sheet.cell(ranking_header_row, column_index).fill = _SECTION_FILL
+        sheet.cell(ranking_header_row, column_index).font = _HEADER_FONT
+    _style_grid(
+        sheet,
+        ranking_header_row,
+        ranking_data_end,
+        1,
+        6,
+        number_format=_DECIMAL_FORMAT,
+    )
+    sheet.row_dimensions[ranking_header_row].height = 31
+
+    for rank_idx in range(1, alternatives_count + 1):
+        row = ranking_data_start + rank_idx - 1
+        match_formula = (
+            f"MATCH({rank_idx},$I${distances_data_start}:$I${distances_data_end},0)"
+        )
+        sheet.cell(
+            row,
+            1,
+            f"=INDEX($A${distances_data_start}:$A${distances_data_end},{match_formula})",
+        )
+        sheet.cell(row, 1).fill = _ALTERNATIVE_FILL
+        sheet.cell(
+            row,
+            2,
+            f"=INDEX($E${distances_data_start}:$E${distances_data_end},{match_formula})",
+        )
+        sheet.cell(
+            row,
+            3,
+            f"=INDEX($F${distances_data_start}:$F${distances_data_end},{match_formula})",
+        )
+        sheet.cell(
+            row,
+            4,
+            f"=INDEX($G${distances_data_start}:$G${distances_data_end},{match_formula})",
+        )
+        sheet.cell(
+            row,
+            5,
+            f"=INDEX($H${distances_data_start}:$H${distances_data_end},{match_formula})",
+        )
+        sheet.cell(row, 6, rank_idx)
+        sheet.cell(row, 6).font = _HEADER_FONT
+        sheet.cell(row, 6).alignment = Alignment(horizontal="center", vertical="center")
+        sheet.cell(row, 6).number_format = "0"
+
     # Keep the alternative labels visible without pinning the whole input
     # section above the matrix, which otherwise looks like a split screen.
     sheet.freeze_panes = "B1"
-    sheet.auto_filter.ref = (
-        f"A{distances_header_row}:I{distances_data_end}"
-    )
-    sheet.print_area = f"A1:{get_column_letter(model_last_column)}{distances_data_end}"
+    sheet.print_area = f"A1:{get_column_letter(model_last_column)}{ranking_data_end}"
     sheet.page_setup.orientation = "landscape"
     sheet.page_setup.fitToWidth = 1
     sheet.page_setup.fitToHeight = 0
@@ -609,7 +676,7 @@ def _build_formula_sheet(
         )
     for column_index in range(last_matrix_column + 1, 10):
         sheet.column_dimensions[get_column_letter(column_index)].width = 17
-    for row in range(1, distances_data_end + 1):
+    for row in range(1, ranking_data_end + 1):
         if sheet.row_dimensions[row].height is None:
             sheet.row_dimensions[row].height = 18
 

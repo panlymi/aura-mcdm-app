@@ -58,7 +58,7 @@ def test_export_contains_formula_model_verified_values_and_formula_guide():
     assert workbook.calculation.fullCalcOnLoad is True
     assert workbook.calculation.forceFullCalc is True
     assert workbook.properties.version == AURA_EXCEL_EXPORT_REVISION
-    assert AURA_EXCEL_EXPORT_FILENAME == "aura_complete_formula_calculation_v7.xlsx"
+    assert AURA_EXCEL_EXPORT_FILENAME == "aura_complete_formula_calculation_v8.xlsx"
 
 
 def test_every_aura_stage_is_driven_by_live_excel_formulas():
@@ -229,5 +229,18 @@ def test_columns_autofit_horizontally_to_fit_content():
     assert sheet.column_dimensions["A"].width >= 20
     # Column C should fit the balance parameter description without clipping
     assert sheet.column_dimensions["C"].width >= 40
+
+
+def test_aura_sheet_contains_formula_driven_sorted_ranking_table():
+    _, workbook = _build_workbook()
+    sheet = workbook["AURA"]
+    sorted_title = _find_cell(sheet, "Final Ranking — Sorted by Rank")
+    assert sorted_title is not None
+    first_rank_row = sorted_title.row + 2
+    assert sheet.cell(first_rank_row, 6).value == 1
+    alt_formula = sheet.cell(first_rank_row, 1).value
+    assert alt_formula.startswith("=INDEX(")
+    assert "MATCH(1," in alt_formula
+
 
 
