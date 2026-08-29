@@ -45,7 +45,7 @@ _ILLEGAL_EXCEL_TEXT = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
 # Increment this whenever the generated workbook changes.  The Streamlit app
 # includes it in the cache key so a deployment cannot serve older workbook
 # bytes merely because the calculation inputs are unchanged.
-AURA_EXCEL_EXPORT_REVISION = "v3"
+AURA_EXCEL_EXPORT_REVISION = "v4"
 AURA_EXCEL_EXPORT_FILENAME = (
     f"aura_complete_formula_calculation_{AURA_EXCEL_EXPORT_REVISION}.xlsx"
 )
@@ -749,7 +749,6 @@ def _build_verified_values_sheet(
     for row in range(final_data_start, final_data_start + len(results)):
         sheet.cell(row, final_rank_col).number_format = "0"
 
-    sheet.freeze_panes = f"B{next_row - len(results) - 1}"
     for column_index in range(2, max_columns + 1):
         sheet.column_dimensions[get_column_letter(column_index)].width = 18
 

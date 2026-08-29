@@ -58,7 +58,7 @@ def test_export_contains_formula_model_verified_values_and_formula_guide():
     assert workbook.calculation.fullCalcOnLoad is True
     assert workbook.calculation.forceFullCalc is True
     assert workbook.properties.version == AURA_EXCEL_EXPORT_REVISION
-    assert AURA_EXCEL_EXPORT_FILENAME == "aura_complete_formula_calculation_v3.xlsx"
+    assert AURA_EXCEL_EXPORT_FILENAME == "aura_complete_formula_calculation_v4.xlsx"
 
 
 def test_every_aura_stage_is_driven_by_live_excel_formulas():
@@ -159,6 +159,7 @@ def test_reference_style_is_applied_to_weights_and_criterion_types():
     assert sheet.cell(header_row, 4).fill.fgColor.rgb.endswith("F4B183")
     assert sheet.sheet_view.showGridLines is False
     assert sheet.freeze_panes == "B1"
+    assert workbook["Verified Values"].freeze_panes is None
 
 
 def test_crisp_template_values_fit_without_hash_placeholders():
