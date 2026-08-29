@@ -58,7 +58,7 @@ def test_export_contains_formula_model_verified_values_and_formula_guide():
     assert workbook.calculation.fullCalcOnLoad is True
     assert workbook.calculation.forceFullCalc is True
     assert workbook.properties.version == AURA_EXCEL_EXPORT_REVISION
-    assert AURA_EXCEL_EXPORT_FILENAME == "aura_complete_formula_calculation_v6.xlsx"
+    assert AURA_EXCEL_EXPORT_FILENAME == "aura_complete_formula_calculation_v7.xlsx"
 
 
 def test_every_aura_stage_is_driven_by_live_excel_formulas():
@@ -152,9 +152,9 @@ def test_reference_style_is_applied_to_weights_and_criterion_types():
     weight_row = raw_title.row + 1
     header_row = raw_title.row + 2
 
-    assert sheet.cell(weight_row, 1).fill.fgColor.rgb.endswith("C6EAF8")
+    assert sheet.cell(weight_row, 1).fill.fgColor.rgb.endswith("F8CBAD")
     assert sheet.cell(header_row, 1).fill.fgColor.rgb.endswith("FFF200")
-    assert sheet.cell(header_row, 2).fill.fgColor.rgb.endswith("FFF200")
+    assert sheet.cell(header_row, 2).fill.fgColor.rgb.endswith("00B0F0")
     assert sheet.cell(header_row, 3).fill.fgColor.rgb.endswith("FF3B30")
     assert sheet.cell(header_row, 4).fill.fgColor.rgb.endswith("F4B183")
     assert sheet.sheet_view.showGridLines is False
@@ -220,4 +220,14 @@ def test_decimal_format_suppresses_trailing_zeros():
     raw_title = _find_cell(sheet, "Step 0 — Original Decision Matrix")
     data_cell = sheet.cell(raw_title.row + 3, 2)
     assert data_cell.number_format == "General"
+
+
+def test_columns_autofit_horizontally_to_fit_content():
+    _, workbook = _build_workbook()
+    sheet = workbook["AURA"]
+    # Column A should fit parameter labels and criterion names without clipping
+    assert sheet.column_dimensions["A"].width >= 20
+    # Column C should fit the balance parameter description without clipping
+    assert sheet.column_dimensions["C"].width >= 40
+
 

@@ -21,8 +21,9 @@ from .validation import validate_crisp_matrix, validate_weights
 
 _TITLE_FILL = PatternFill("solid", fgColor="1F4E78")
 _SECTION_FILL = PatternFill("solid", fgColor="D9EAF7")
-_WEIGHT_FILL = PatternFill("solid", fgColor="C6EAF8")
-_BENEFIT_FILL = PatternFill("solid", fgColor="FFF200")
+_WEIGHT_FILL = PatternFill("solid", fgColor="F8CBAD")  # Orange, Accent 6, Lighter 60%
+_BENEFIT_FILL = PatternFill("solid", fgColor="00B0F0")  # Light Blue (Standard Colors)
+_ALTERNATIVE_FILL = PatternFill("solid", fgColor="FFF200")  # Yellow
 _COST_FILL = PatternFill("solid", fgColor="FF3B30")
 _TARGET_FILL = PatternFill("solid", fgColor="F4B183")
 _SUMMARY_FILL = PatternFill("solid", fgColor="E2F0D9")
@@ -48,7 +49,7 @@ _WEIGHT_FORMAT = "General"
 # Increment this whenever the generated workbook changes.  The Streamlit app
 # includes it in the cache key so a deployment cannot serve older workbook
 # bytes merely because the calculation inputs are unchanged.
-AURA_EXCEL_EXPORT_REVISION = "v6"
+AURA_EXCEL_EXPORT_REVISION = "v7"
 AURA_EXCEL_EXPORT_FILENAME = (
     f"aura_complete_formula_calculation_{AURA_EXCEL_EXPORT_REVISION}.xlsx"
 )
@@ -134,7 +135,7 @@ def _style_matrix_header(
     preferences: Mapping[str, CriterionPreference],
 ) -> None:
     alternative_cell = sheet.cell(header_row, 1)
-    alternative_cell.fill = _BENEFIT_FILL
+    alternative_cell.fill = _ALTERNATIVE_FILL
     alternative_cell.font = _HEADER_FONT
     for offset, criterion in enumerate(columns, start=2):
         cell = sheet.cell(header_row, offset)
@@ -185,11 +186,50 @@ def _write_indexed_dataframe(
     for row_offset, (index, values) in enumerate(frame.iterrows(), start=1):
         excel_row = header_row + row_offset
         _set_text(sheet, excel_row, 1, index)
-        sheet.cell(excel_row, 1).fill = _BENEFIT_FILL
+        sheet.cell(excel_row, 1).fill = _ALTERNATIVE_FILL
         for column_index, value in enumerate(values, start=2):
             sheet.cell(excel_row, column_index, float(value))
             sheet.cell(excel_row, column_index).number_format = _DECIMAL_FORMAT
     return header_row + len(frame) + 2
+
+
+def _autofit_column_widths(
+    sheet,
+    *,
+    min_width: int = 15,
+    padding: int = 4,
+    max_width: int = 65,
+) -> None:
+    """Automatically widen all columns horizontally to fit text and headers without wrapping or clipping."""
+    merged_ranges = list(sheet.merged_cells.ranges)
+
+    def is_wide_merged_cell(row_idx: int, col_idx: int) -> bool:
+        for rng in merged_ranges:
+            if rng.min_row <= row_idx <= rng.max_row and rng.min_col <= col_idx <= rng.max_col:
+                if rng.max_col > rng.min_col:
+                    return True
+        return False
+
+    for col in sheet.columns:
+        col_idx = col[0].column
+        letter = get_column_letter(col_idx)
+        max_len = 0
+        for cell in col:
+            if cell.value is None:
+                continue
+            if is_wide_merged_cell(cell.row, col_idx):
+                continue
+            val_str = str(cell.value)
+            if val_str.startswith("="):
+                val_len = 15
+            else:
+                lines = val_str.split("\n")
+                val_len = max(len(line) for line in lines)
+            if val_len > max_len:
+                max_len = val_len
+        calculated_width = max(min_width, min(max_width, max_len + padding))
+        existing_width = sheet.column_dimensions[letter].width or 0
+        sheet.column_dimensions[letter].width = max(existing_width, calculated_width)
 
 
 def _build_formula_sheet(
@@ -207,11 +247,11 @@ def _build_formula_sheet(
 
     columns = [str(column) for column in frame.columns]
     alternative_names = [str(index) for index in frame.index]
-    criteria_count = len(columns)
-    alternatives_count = len(alternative_names)
-    last_matrix_column = criteria_count + 1
+    last_matrix_column = len(columns) + 1
     last_matrix_letter = get_column_letter(last_matrix_column)
-    model_last_column = max(last_matrix_column, 9)
+    model_last_column = max(9, last_matrix_column)
+    alternatives_count = len(alternative_names)
+    criteria_count = len(columns)
 
     _set_title(
         sheet,
@@ -223,7 +263,7 @@ def _build_formula_sheet(
     sheet.cell(
         2,
         1,
-        "Blue rows contain normalized weights; yellow/red/orange headers represent "
+        "Orange rows contain normalized weights; light blue/red/orange headers represent "
         "benefit/cost/target criteria. Select any derived cell to inspect its Excel formula.",
     )
     sheet.cell(2, 1).font = Font(name="Courier New", size=9, italic=True, color="666666")
@@ -308,7 +348,7 @@ def _build_formula_sheet(
     for row_offset, (alternative, values) in enumerate(frame.iterrows()):
         row = raw_data_start + row_offset
         _set_text(sheet, row, 1, alternative)
-        sheet.cell(row, 1).fill = _BENEFIT_FILL
+        sheet.cell(row, 1).fill = _ALTERNATIVE_FILL
         for column_index, value in enumerate(values, start=2):
             sheet.cell(row, column_index, float(value))
             sheet.cell(row, column_index).fill = _WHITE_FILL
@@ -365,7 +405,7 @@ def _build_formula_sheet(
         row = normalized_data_start + row_offset
         raw_row = raw_data_start + row_offset
         sheet.cell(row, 1, f"=A{raw_row}")
-        sheet.cell(row, 1).fill = _BENEFIT_FILL
+        sheet.cell(row, 1).fill = _ALTERNATIVE_FILL
         for column_index in range(2, last_matrix_column + 1):
             letter = get_column_letter(column_index)
             formula = (
@@ -414,7 +454,7 @@ def _build_formula_sheet(
         row = weighted_data_start + row_offset
         normalized_row = normalized_data_start + row_offset
         sheet.cell(row, 1, f"=A{normalized_row}")
-        sheet.cell(row, 1).fill = _BENEFIT_FILL
+        sheet.cell(row, 1).fill = _ALTERNATIVE_FILL
         for column_index in range(2, last_matrix_column + 1):
             letter = get_column_letter(column_index)
             sheet.cell(
@@ -508,7 +548,7 @@ def _build_formula_sheet(
         row = distances_data_start + row_offset
         weighted_row = weighted_data_start + row_offset
         sheet.cell(row, 1, f"=A{weighted_row}")
-        sheet.cell(row, 1).fill = _BENEFIT_FILL
+        sheet.cell(row, 1).fill = _ALTERNATIVE_FILL
         weighted_range = (
             f"{weighted_first_letter}{weighted_row}:{weighted_last_letter}{weighted_row}"
         )
@@ -572,6 +612,8 @@ def _build_formula_sheet(
     for row in range(1, distances_data_end + 1):
         if sheet.row_dimensions[row].height is None:
             sheet.row_dimensions[row].height = 18
+
+    _autofit_column_widths(sheet)
 
 
 def _build_verified_values_sheet(
@@ -754,6 +796,7 @@ def _build_verified_values_sheet(
 
     for column_index in range(2, max_columns + 1):
         sheet.column_dimensions[get_column_letter(column_index)].width = 18
+    _autofit_column_widths(sheet)
 
 
 def _build_formula_guide_sheet(workbook: Workbook) -> None:
