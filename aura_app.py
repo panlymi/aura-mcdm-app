@@ -374,7 +374,7 @@ else:
                         weights_df_init,
                         column_config={
                             "Criterion": st.column_config.TextColumn("Criterion", disabled=True),
-                            "Weight": st.column_config.NumberColumn("Weight", min_value=0.0, format="%.4f", step=0.01), 
+                            "Weight": st.column_config.NumberColumn("Weight", min_value=0.0, format="%.4f", step=0.0001), 
                             "Direction": st.column_config.SelectboxColumn("Direction", options=direction_options),
                             "Target Value": st.column_config.NumberColumn("Target Value (If 'target')", format="%.4f", step=None)
                         },
