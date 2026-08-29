@@ -58,7 +58,7 @@ def test_export_contains_formula_model_verified_values_and_formula_guide():
     assert workbook.calculation.fullCalcOnLoad is True
     assert workbook.calculation.forceFullCalc is True
     assert workbook.properties.version == AURA_EXCEL_EXPORT_REVISION
-    assert AURA_EXCEL_EXPORT_FILENAME == "aura_complete_formula_calculation_v4.xlsx"
+    assert AURA_EXCEL_EXPORT_FILENAME == "aura_complete_formula_calculation_v5.xlsx"
 
 
 def test_every_aura_stage_is_driven_by_live_excel_formulas():
@@ -212,3 +212,12 @@ def test_formula_guide_contains_the_method_reference_and_complete_equations():
     assert any("1 - |x_ij - r_j|" in str(value) for value in values)
     assert any("α(D+_i-D-_i)" in str(value) for value in values)
     assert "https://doi.org/10.1016/j.softx.2025.102395" in values
+
+
+def test_decimal_format_suppresses_trailing_zeros():
+    _, workbook = _build_workbook()
+    sheet = workbook["AURA"]
+    raw_title = _find_cell(sheet, "Step 0 — Original Decision Matrix")
+    data_cell = sheet.cell(raw_title.row + 3, 2)
+    assert data_cell.number_format == "0.#########"
+

@@ -42,10 +42,13 @@ _HEADER_FONT = Font(name="Courier New", size=10, bold=True, color="000000")
 _TITLE_FONT = Font(name="Courier New", size=15, bold=True, color="FFFFFF")
 _ILLEGAL_EXCEL_TEXT = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
 
+_DECIMAL_FORMAT = "0.#########"
+_WEIGHT_FORMAT = "0.######"
+
 # Increment this whenever the generated workbook changes.  The Streamlit app
 # includes it in the cache key so a deployment cannot serve older workbook
 # bytes merely because the calculation inputs are unchanged.
-AURA_EXCEL_EXPORT_REVISION = "v4"
+AURA_EXCEL_EXPORT_REVISION = "v5"
 AURA_EXCEL_EXPORT_FILENAME = (
     f"aura_complete_formula_calculation_{AURA_EXCEL_EXPORT_REVISION}.xlsx"
 )
@@ -152,7 +155,7 @@ def _write_weights_row(
         cell.border = _GRID_BORDER
         cell.alignment = Alignment(horizontal="center", vertical="center")
         if cell.column > 1:
-            cell.number_format = "0.000000"
+            cell.number_format = _WEIGHT_FORMAT
 
 
 def _write_indexed_dataframe(
@@ -185,7 +188,7 @@ def _write_indexed_dataframe(
         sheet.cell(excel_row, 1).fill = _BENEFIT_FILL
         for column_index, value in enumerate(values, start=2):
             sheet.cell(excel_row, column_index, float(value))
-            sheet.cell(excel_row, column_index).number_format = "0.000000000"
+            sheet.cell(excel_row, column_index).number_format = _DECIMAL_FORMAT
     return header_row + len(frame) + 2
 
 
@@ -277,7 +280,7 @@ def _build_formula_sheet(
         preference = preferences[criterion]
         _set_text(sheet, row, 1, criterion)
         sheet.cell(row, 2, float(weights[criterion]))
-        sheet.cell(row, 2).number_format = "0.000000"
+        sheet.cell(row, 2).number_format = _WEIGHT_FORMAT
         sheet.cell(row, 3, _preference_label(preference))
         sheet.cell(row, 3).fill = _preference_fill(preference)
         if preference.kind is CriterionType.TARGET:
@@ -286,7 +289,7 @@ def _build_formula_sheet(
             sheet.cell(row, 4, f"={matrix_column}${raw_max_row}")
         else:
             sheet.cell(row, 4, f"={matrix_column}${raw_min_row}")
-        sheet.cell(row, 4).number_format = "0.000000000"
+        sheet.cell(row, 4).number_format = _DECIMAL_FORMAT
 
     _set_section_title(sheet, raw_title_row, last_matrix_column, "Step 0 — Original Decision Matrix")
     _write_weights_row(sheet, raw_weights_row, columns, weights)
@@ -299,7 +302,7 @@ def _build_formula_sheet(
         raw_reference_row,
         1,
         last_matrix_column,
-        number_format="0.000000000",
+        number_format=_DECIMAL_FORMAT,
     )
     _style_matrix_header(sheet, raw_header_row, columns, preferences)
     for row_offset, (alternative, values) in enumerate(frame.iterrows()):
@@ -355,7 +358,7 @@ def _build_formula_sheet(
         normalized_data_end,
         1,
         last_matrix_column,
-        number_format="0.000000000",
+        number_format=_DECIMAL_FORMAT,
     )
     _style_matrix_header(sheet, normalized_header_row, columns, preferences)
     for row_offset, alternative in enumerate(alternative_names):
@@ -404,7 +407,7 @@ def _build_formula_sheet(
         average_row,
         1,
         last_matrix_column,
-        number_format="0.000000000",
+        number_format=_DECIMAL_FORMAT,
     )
     _style_matrix_header(sheet, weighted_header_row, columns, preferences)
     for row_offset, alternative in enumerate(alternative_names):
@@ -472,7 +475,7 @@ def _build_formula_sheet(
         f"=MAX(D${distances_data_start}:D${distances_data_end})-"
         f"MIN(D${distances_data_start}:D${distances_data_end})",
     )
-    _style_grid(sheet, sigma_row, sigma_row, 1, 7, number_format="0.000000000")
+    _style_grid(sheet, sigma_row, sigma_row, 1, 7, number_format=_DECIMAL_FORMAT)
 
     distance_headers = [
         "Alternative",
@@ -495,7 +498,7 @@ def _build_formula_sheet(
         distances_data_end,
         1,
         9,
-        number_format="0.000000000",
+        number_format=_DECIMAL_FORMAT,
     )
     sheet.row_dimensions[distances_header_row].height = 31
 
@@ -643,7 +646,7 @@ def _build_verified_values_sheet(
         settings_data_end,
         1,
         4,
-        number_format="0.000000000",
+        number_format=_DECIMAL_FORMAT,
     )
     sheet.column_dimensions["A"].width = max(
         22,
@@ -735,7 +738,7 @@ def _build_verified_values_sheet(
     sheet.cell(next_row + 1, 4, float(correction_factors["Sigma-"]))
     sheet.cell(next_row + 2, 1, "Sigma avg")
     sheet.cell(next_row + 2, 2, float(correction_factors["Sigma_avg"]))
-    _style_grid(sheet, next_row + 1, next_row + 2, 1, 4, number_format="0.000000000")
+    _style_grid(sheet, next_row + 1, next_row + 2, 1, 4, number_format=_DECIMAL_FORMAT)
 
     final_start = next_row + 4
     _write_indexed_dataframe(
