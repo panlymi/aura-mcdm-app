@@ -95,10 +95,10 @@ Rules enforced by the application:
 - fuzzy weights must match the criteria exactly and have a positive total;
 - the SYAI trade-off parameter uses the published open interval `0 < beta < 1`.
 
-## Complete AURA and SYAI Excel exports
+## Complete AURA, SYAI, and ARIE Excel exports
 
-After an AURA or SYAI calculation, the Results tab provides a complete `.xlsx`
-workbook rather than a flat ranking table.
+After an AURA, SYAI, or ARIE calculation, the Results tab provides a complete
+`.xlsx` workbook rather than a flat ranking table.
 
 The AURA workbook contains:
 
@@ -120,12 +120,22 @@ The SYAI workbook contains:
 - a **Verified Values** snapshot of every canonical calculation stage; and
 - a **Formula Guide** with equations, usage notes, and the method reference.
 
-Both workbooks follow the research-sheet visual convention: orange weight rows,
+The ARIE workbook contains:
+
+- an **ARIE** sheet with live benefit, cost, and target normalization formulas,
+  weighted ideal/anti-ideal solutions, criterion-level similarity contributions,
+  relative closeness, shared competition ranks, and a score-sorted final table;
+- a formula-linked **Decision Summary** with gamma, kappa, balance stance, winner
+  KPIs, and a native ranking chart;
+- a **Verified Values** snapshot that reconciles every similarity contribution; and
+- a **Formula Guide** with the complete methodology and primary paper links.
+
+All three workbooks follow the research-sheet visual convention: orange weight rows,
 yellow alternative cells, blue benefit headers, red cost headers, orange target
 headers, clear calculation grids, and visible formulas when a derived cell is
 selected. Excel is instructed to recalculate the live model automatically when
-opened. In the SYAI workbook, changing the highlighted beta cell refreshes the
-live scores, ranks, summary KPIs, and chart.
+opened. Changing SYAI's highlighted beta cell or ARIE's highlighted gamma and
+kappa cells refreshes the live scores, ranks, summary KPIs, and chart.
 
 ## Monte Carlo simulation in Streamlit
 

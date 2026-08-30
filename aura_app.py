@@ -11,6 +11,11 @@ from mcdm.aura_excel import (
     AURA_EXCEL_EXPORT_REVISION,
     build_aura_excel_workbook,
 )
+from mcdm.arie_excel import (
+    ARIE_EXCEL_EXPORT_FILENAME,
+    ARIE_EXCEL_EXPORT_REVISION,
+    build_arie_excel_workbook,
+)
 from mcdm.syai_excel import (
     SYAI_EXCEL_EXPORT_FILENAME,
     SYAI_EXCEL_EXPORT_REVISION,
@@ -91,6 +96,29 @@ def build_syai_excel_download(
         weights,
         directions,
         beta=beta,
+    )
+
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def build_arie_excel_download(
+    matrix: pd.DataFrame,
+    weights: dict,
+    directions: dict,
+    gamma: float,
+    kappa: float,
+    export_revision: str,
+) -> bytes:
+    """Build a cached, formula-rich ARIE workbook for the current calculation."""
+
+    if export_revision != ARIE_EXCEL_EXPORT_REVISION:
+        raise ValueError("The requested ARIE workbook revision is no longer supported.")
+
+    return build_arie_excel_workbook(
+        matrix,
+        weights,
+        directions,
+        gamma=gamma,
+        kappa=kappa,
     )
 
 st.set_page_config(page_title="MCDM Calculator", layout="wide", page_icon="📊")
@@ -784,6 +812,36 @@ else:
                         )
                     except (MCDMValidationError, ValueError, TypeError, KeyError) as exc:
                         st.error(f"The SYAI Excel workbook could not be generated: {exc}")
+
+                elif mcdm_method == "ARIE":
+                    st.markdown("### Complete Excel calculation")
+                    st.caption(
+                        "Download a complete ARIE decision workbook with live gamma and "
+                        "kappa controls, criterion-level similarity contributions, a "
+                        "decision-summary chart, verified values, and a formula audit guide."
+                    )
+                    try:
+                        arie_workbook = build_arie_excel_download(
+                            matrix_to_calc,
+                            dict(weights),
+                            dict(directions),
+                            float(parameters["gamma"]),
+                            float(parameters["kappa"]),
+                            ARIE_EXCEL_EXPORT_REVISION,
+                        )
+                        st.download_button(
+                            "📙 Download Complete ARIE Excel Workbook",
+                            data=arie_workbook,
+                            file_name=ARIE_EXCEL_EXPORT_FILENAME,
+                            mime=(
+                                "application/vnd.openxmlformats-officedocument."
+                                "spreadsheetml.sheet"
+                            ),
+                            use_container_width=True,
+                            key="download_complete_arie_excel",
+                        )
+                    except (MCDMValidationError, ValueError, TypeError, KeyError) as exc:
+                        st.error(f"The ARIE Excel workbook could not be generated: {exc}")
 
         # --- DETAILED STEPS TAB ---
         with tab_steps:
