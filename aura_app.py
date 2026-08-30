@@ -11,6 +11,11 @@ from mcdm.aura_excel import (
     AURA_EXCEL_EXPORT_REVISION,
     build_aura_excel_workbook,
 )
+from mcdm.syai_excel import (
+    SYAI_EXCEL_EXPORT_FILENAME,
+    SYAI_EXCEL_EXPORT_REVISION,
+    build_syai_excel_workbook,
+)
 from mcdm.criteria import CriterionType, METHOD_CAPABILITIES
 from mcdm.presentation import RESULT_PRESENTATION
 from mcdm.ranking import natural_sort_key
@@ -65,6 +70,27 @@ def build_aura_excel_download(
         directions,
         alpha=alpha,
         p=p,
+    )
+
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def build_syai_excel_download(
+    matrix: pd.DataFrame,
+    weights: dict,
+    directions: dict,
+    beta: float,
+    export_revision: str,
+) -> bytes:
+    """Build a cached, formula-rich SYAI workbook for the current calculation."""
+
+    if export_revision != SYAI_EXCEL_EXPORT_REVISION:
+        raise ValueError("The requested SYAI workbook revision is no longer supported.")
+
+    return build_syai_excel_workbook(
+        matrix,
+        weights,
+        directions,
+        beta=beta,
     )
 
 st.set_page_config(page_title="MCDM Calculator", layout="wide", page_icon="📊")
@@ -729,6 +755,35 @@ else:
                         )
                     except (MCDMValidationError, ValueError, TypeError, KeyError) as exc:
                         st.error(f"The AURA Excel workbook could not be generated: {exc}")
+
+                elif mcdm_method == "SYAI":
+                    st.markdown("### Complete Excel calculation")
+                    st.caption(
+                        "Download a complete SYAI decision workbook with live Excel "
+                        "formulas, an editable beta parameter, a decision-summary chart, "
+                        "verified values for every stage, and a formula audit guide."
+                    )
+                    try:
+                        syai_workbook = build_syai_excel_download(
+                            matrix_to_calc,
+                            dict(weights),
+                            dict(directions),
+                            float(parameters["beta"]),
+                            SYAI_EXCEL_EXPORT_REVISION,
+                        )
+                        st.download_button(
+                            "📘 Download Complete SYAI Excel Workbook",
+                            data=syai_workbook,
+                            file_name=SYAI_EXCEL_EXPORT_FILENAME,
+                            mime=(
+                                "application/vnd.openxmlformats-officedocument."
+                                "spreadsheetml.sheet"
+                            ),
+                            use_container_width=True,
+                            key="download_complete_syai_excel",
+                        )
+                    except (MCDMValidationError, ValueError, TypeError, KeyError) as exc:
+                        st.error(f"The SYAI Excel workbook could not be generated: {exc}")
 
         # --- DETAILED STEPS TAB ---
         with tab_steps:

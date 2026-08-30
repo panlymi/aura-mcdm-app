@@ -95,10 +95,12 @@ Rules enforced by the application:
 - fuzzy weights must match the criteria exactly and have a positive total;
 - the SYAI trade-off parameter uses the published open interval `0 < beta < 1`.
 
-## Complete AURA Excel export
+## Complete AURA and SYAI Excel exports
 
-After an AURA calculation, the Results tab provides a complete `.xlsx`
-workbook rather than a flat ranking table. The export contains:
+After an AURA or SYAI calculation, the Results tab provides a complete `.xlsx`
+workbook rather than a flat ranking table.
+
+The AURA workbook contains:
 
 - an **AURA** sheet with live Excel formulas for normalization, weighting,
   PIS/NIS/average solutions, raw and corrected distances, correction factors,
@@ -109,10 +111,21 @@ workbook rather than a flat ranking table. The export contains:
 - a **Formula Guide** sheet with the symbolic equations, interpretation, and
   method reference.
 
-The workbook follows the supplied research-sheet visual convention: blue weight
-rows, yellow benefit/identity cells, red cost headers, orange target headers,
-bordered calculation grids, and visible formulas when a derived cell is selected.
-Excel is instructed to recalculate the live model automatically when opened.
+The SYAI workbook contains:
+
+- a **SYAI** sheet with live formulas for ideal-point normalization, weighting,
+  yielded-ideal and anti-ideal solutions, Manhattan distances, closeness scores,
+  shared competition ranks, and a score-sorted final table;
+- a formula-linked **Decision Summary** with winner KPIs and a native ranking chart;
+- a **Verified Values** snapshot of every canonical calculation stage; and
+- a **Formula Guide** with equations, usage notes, and the method reference.
+
+Both workbooks follow the research-sheet visual convention: orange weight rows,
+yellow alternative cells, blue benefit headers, red cost headers, orange target
+headers, clear calculation grids, and visible formulas when a derived cell is
+selected. Excel is instructed to recalculate the live model automatically when
+opened. In the SYAI workbook, changing the highlighted beta cell refreshes the
+live scores, ranks, summary KPIs, and chart.
 
 ## Monte Carlo simulation in Streamlit
 

@@ -123,7 +123,7 @@ def test_uppercase_csv_calculates_and_displays_every_rank_one_tie():
     assert any("Next-ranked alternative(s): A3" in item.value for item in app.caption)
 
 
-def test_complete_formula_excel_download_is_available_only_for_aura():
+def test_complete_formula_excel_download_is_available_for_aura_and_syai():
     aura_app = _app_with_upload(CRISP_MATRIX)
     _run_baseline(aura_app)
 
@@ -134,12 +134,22 @@ def test_complete_formula_excel_download_is_available_only_for_aura():
     assert "📗 Download Complete AURA Excel Workbook" in aura_downloads
     assert aura_downloads["📗 Download Complete AURA Excel Workbook"].proto.url
 
+    syai_app = _app_with_upload(CRISP_MATRIX, method="SYAI")
+    _run_baseline(syai_app, "SYAI")
+    syai_downloads = {
+        button.label: button for button in syai_app.download_button
+    }
+    assert not syai_app.exception
+    assert "📘 Download Complete SYAI Excel Workbook" in syai_downloads
+    assert syai_downloads["📘 Download Complete SYAI Excel Workbook"].proto.url
+    assert "📗 Download Complete AURA Excel Workbook" not in syai_downloads
+
     topsis_app = _app_with_upload(CRISP_MATRIX, method="TOPSIS")
     _run_baseline(topsis_app, "TOPSIS")
     assert not topsis_app.exception
-    assert "📗 Download Complete AURA Excel Workbook" not in [
-        button.label for button in topsis_app.download_button
-    ]
+    topsis_downloads = [button.label for button in topsis_app.download_button]
+    assert "📗 Download Complete AURA Excel Workbook" not in topsis_downloads
+    assert "📘 Download Complete SYAI Excel Workbook" not in topsis_downloads
 
 
 def test_sensitivity_and_comparison_run_only_on_request_and_become_stale():
