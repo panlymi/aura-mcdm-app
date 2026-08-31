@@ -49,7 +49,7 @@ from .validation import validate_crisp_matrix, validate_weights
 _NUMERICAL_GUARD = 1e-12
 
 # Included in Streamlit's cache key so workbook changes invalidate old bytes.
-WASPAS_EXCEL_EXPORT_REVISION = "v1"
+WASPAS_EXCEL_EXPORT_REVISION = "v2"
 WASPAS_EXCEL_EXPORT_FILENAME = (
     f"waspas_complete_formula_calculation_{WASPAS_EXCEL_EXPORT_REVISION}.xlsx"
 )

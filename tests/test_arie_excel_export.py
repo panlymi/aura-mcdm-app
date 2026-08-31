@@ -63,7 +63,7 @@ def test_export_contains_live_model_summary_verified_values_and_guide():
     assert workbook.calculation.fullCalcOnLoad is True
     assert workbook.calculation.forceFullCalc is True
     assert workbook.properties.version == ARIE_EXCEL_EXPORT_REVISION
-    assert ARIE_EXCEL_EXPORT_FILENAME == "arie_complete_formula_calculation_v1.xlsx"
+    assert ARIE_EXCEL_EXPORT_FILENAME == "arie_complete_formula_calculation_v2.xlsx"
 
 
 def test_every_arie_stage_is_driven_by_live_excel_formulas():
@@ -269,3 +269,12 @@ def test_formula_guide_contains_complete_equations_and_primary_reference():
     assert any("κ Sim_i^best" in str(value) for value in values)
     assert "https://www.ejpam.com/index.php/ejpam/article/view/6578" in values
     assert "https://doi.org/10.29020/nybg.ejpam.v18i4.6578" in values
+
+
+def test_decimal_format_suppresses_trailing_zeros():
+    _, workbook = _build_workbook()
+    sheet = workbook["ARIE"]
+    raw_title = _find_cell(sheet, "Step 1 — Original Decision Matrix")
+    data_cell = sheet.cell(raw_title.row + 3, 2)
+    assert data_cell.number_format == "General"
+

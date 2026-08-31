@@ -58,7 +58,7 @@ def test_export_contains_live_model_summary_verified_values_and_guide():
     assert workbook.calculation.fullCalcOnLoad is True
     assert workbook.calculation.forceFullCalc is True
     assert workbook.properties.version == WASPAS_EXCEL_EXPORT_REVISION
-    assert WASPAS_EXCEL_EXPORT_FILENAME == "waspas_complete_formula_calculation_v1.xlsx"
+    assert WASPAS_EXCEL_EXPORT_FILENAME == "waspas_complete_formula_calculation_v2.xlsx"
 
 
 def test_every_waspas_stage_is_driven_by_live_excel_formulas():
@@ -196,3 +196,12 @@ def test_formula_guide_contains_complete_equations_and_primary_reference():
     assert any("Π_j (r_ij)^(w_j)" in str(value) for value in values)
     assert any("λ Q_i^(1) + (1-λ) Q_i^(2)" in str(value) for value in values)
     assert "https://eejournal.ktu.lt/index.php/elt/article/view/1810" in values
+
+
+def test_decimal_format_suppresses_trailing_zeros():
+    _, workbook = _build_workbook()
+    sheet = workbook["WASPAS"]
+    raw_title = _find_cell(sheet, "Step 1 — Original Decision Matrix")
+    data_cell = sheet.cell(raw_title.row + 3, 2)
+    assert data_cell.number_format == "General"
+

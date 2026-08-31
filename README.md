@@ -96,9 +96,9 @@ Rules enforced by the application:
 - fuzzy weights must match the criteria exactly and have a positive total;
 - the SYAI trade-off parameter uses the published open interval `0 < beta < 1`.
 
-## Complete AURA, SYAI, ARIE, and WASPAS Excel exports
+## Complete AURA, SYAI, ARIE, WASPAS, and MOORA Excel exports
 
-After an AURA, SYAI, ARIE, or WASPAS calculation, the Results tab provides a complete
+After an AURA, SYAI, ARIE, WASPAS, or MOORA calculation, the Results tab provides a complete
 `.xlsx` workbook rather than a flat ranking table.
 
 The AURA workbook contains:
@@ -142,13 +142,24 @@ The WASPAS workbook contains:
   aggregate scores; and
 - a **Formula Guide** with the published equations and original paper links.
 
-All four workbooks follow the research-sheet visual convention: orange weight rows,
+The MOORA workbook contains:
+
+- a **MOORA** sheet with live vector normalization formulas, weighted normalized
+  components, dynamic benefit sum (`SUMIF`) and cost sum (`SUMIF`), normalized
+  assessment values ($y_i$), competition ranks, and a score-sorted final table;
+- a formula-linked **Decision Summary** with winner KPIs, criteria breakdown, and a
+  native ranking chart;
+- a **Verified Values** snapshot reconciling vector denominators, weighted components,
+  benefit/cost sums, and canonical rankings; and
+- a **Formula Guide** with mathematical formulas and primary literature citations.
+
+All five workbooks follow the research-sheet visual convention: orange weight rows,
 yellow alternative cells, blue benefit headers, red cost headers, orange target
 headers, clear calculation grids, and visible formulas when a derived cell is
 selected. Excel is instructed to recalculate the live model automatically when
 opened. Changing SYAI's highlighted beta cell, ARIE's highlighted gamma and
-kappa cells, or WASPAS's highlighted lambda cell refreshes the live scores,
-ranks, summary KPIs, and chart.
+kappa cells, WASPAS's highlighted lambda cell, or criterion weights refreshes the
+live scores, ranks, summary KPIs, and chart.
 
 ## Monte Carlo simulation in Streamlit
 

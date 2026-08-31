@@ -48,12 +48,12 @@ _HEADER_FONT = Font(name="Aptos", size=10, bold=True, color="1F1F1F")
 _TITLE_FONT = Font(name="Aptos Display", size=16, bold=True, color="FFFFFF")
 _ILLEGAL_EXCEL_TEXT = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
 
-_RAW_NUMBER_FORMAT = "0.#########"
+_RAW_NUMBER_FORMAT = "General"
 _CALC_NUMBER_FORMAT = "0.000000"
 _WEIGHT_FORMAT = "0.0000"
 
 # Included in Streamlit's cache key so workbook changes invalidate old bytes.
-SYAI_EXCEL_EXPORT_REVISION = "v1"
+SYAI_EXCEL_EXPORT_REVISION = "v2"
 SYAI_EXCEL_EXPORT_FILENAME = (
     f"syai_complete_formula_calculation_{SYAI_EXCEL_EXPORT_REVISION}.xlsx"
 )

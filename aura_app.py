@@ -26,6 +26,11 @@ from mcdm.waspas_excel import (
     WASPAS_EXCEL_EXPORT_REVISION,
     build_waspas_excel_workbook,
 )
+from mcdm.moora_excel import (
+    MOORA_EXCEL_EXPORT_FILENAME,
+    MOORA_EXCEL_EXPORT_REVISION,
+    build_moora_excel_workbook,
+)
 from mcdm.criteria import CriterionType, METHOD_CAPABILITIES
 from mcdm.presentation import RESULT_PRESENTATION
 from mcdm.ranking import natural_sort_key
@@ -145,6 +150,25 @@ def build_waspas_excel_download(
         weights,
         directions,
         lambda_value=lambda_value,
+    )
+
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def build_moora_excel_download(
+    matrix: pd.DataFrame,
+    weights: dict,
+    directions: dict,
+    export_revision: str,
+) -> bytes:
+    """Build a cached, formula-rich MOORA workbook for the current calculation."""
+
+    if export_revision != MOORA_EXCEL_EXPORT_REVISION:
+        raise ValueError("The requested MOORA workbook revision is no longer supported.")
+
+    return build_moora_excel_workbook(
+        matrix,
+        weights,
+        directions,
     )
 
 st.set_page_config(page_title="MCDM Calculator", layout="wide", page_icon="📊")
@@ -913,6 +937,34 @@ else:
                         )
                     except (MCDMValidationError, ValueError, TypeError, KeyError) as exc:
                         st.error(f"The WASPAS Excel workbook could not be generated: {exc}")
+
+                elif mcdm_method == "MOORA":
+                    st.markdown("### Complete Excel calculation")
+                    st.caption(
+                        "Download a complete MOORA decision workbook with live "
+                        "vector normalization, weighted components, benefit and cost sums, "
+                        "assessment values (y_i), a decision-summary chart, verified values, and a formula guide."
+                    )
+                    try:
+                        moora_workbook = build_moora_excel_download(
+                            matrix_to_calc,
+                            dict(weights),
+                            dict(directions),
+                            MOORA_EXCEL_EXPORT_REVISION,
+                        )
+                        st.download_button(
+                            "📓 Download Complete MOORA Excel Workbook",
+                            data=moora_workbook,
+                            file_name=MOORA_EXCEL_EXPORT_FILENAME,
+                            mime=(
+                                "application/vnd.openxmlformats-officedocument."
+                                "spreadsheetml.sheet"
+                            ),
+                            use_container_width=True,
+                            key="download_complete_moora_excel",
+                        )
+                    except (MCDMValidationError, ValueError, TypeError, KeyError) as exc:
+                        st.error(f"The MOORA Excel workbook could not be generated: {exc}")
 
         # --- DETAILED STEPS TAB ---
         with tab_steps:

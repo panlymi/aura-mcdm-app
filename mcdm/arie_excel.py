@@ -49,7 +49,7 @@ from .validation import validate_crisp_matrix, validate_weights
 _EPSILON = 1e-9
 
 # Included in Streamlit's cache key so workbook changes invalidate old bytes.
-ARIE_EXCEL_EXPORT_REVISION = "v1"
+ARIE_EXCEL_EXPORT_REVISION = "v2"
 ARIE_EXCEL_EXPORT_FILENAME = (
     f"arie_complete_formula_calculation_{ARIE_EXCEL_EXPORT_REVISION}.xlsx"
 )

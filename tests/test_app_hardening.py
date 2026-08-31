@@ -167,6 +167,20 @@ def test_complete_formula_excel_download_is_available_for_supported_methods():
     assert "📗 Download Complete AURA Excel Workbook" not in waspas_downloads
     assert "📘 Download Complete SYAI Excel Workbook" not in waspas_downloads
     assert "📙 Download Complete ARIE Excel Workbook" not in waspas_downloads
+    assert "📓 Download Complete MOORA Excel Workbook" not in waspas_downloads
+
+    moora_app = _app_with_upload(CRISP_MATRIX, method="MOORA")
+    _run_baseline(moora_app, "MOORA")
+    moora_downloads = {
+        button.label: button for button in moora_app.download_button
+    }
+    assert not moora_app.exception
+    assert "📓 Download Complete MOORA Excel Workbook" in moora_downloads
+    assert moora_downloads["📓 Download Complete MOORA Excel Workbook"].proto.url
+    assert "📗 Download Complete AURA Excel Workbook" not in moora_downloads
+    assert "📘 Download Complete SYAI Excel Workbook" not in moora_downloads
+    assert "📙 Download Complete ARIE Excel Workbook" not in moora_downloads
+    assert "📕 Download Complete WASPAS Excel Workbook" not in moora_downloads
 
     topsis_app = _app_with_upload(CRISP_MATRIX, method="TOPSIS")
     _run_baseline(topsis_app, "TOPSIS")
@@ -176,6 +190,7 @@ def test_complete_formula_excel_download_is_available_for_supported_methods():
     assert "📘 Download Complete SYAI Excel Workbook" not in topsis_downloads
     assert "📙 Download Complete ARIE Excel Workbook" not in topsis_downloads
     assert "📕 Download Complete WASPAS Excel Workbook" not in topsis_downloads
+    assert "📓 Download Complete MOORA Excel Workbook" not in topsis_downloads
 
 
 def test_sensitivity_and_comparison_run_only_on_request_and_become_stale():
