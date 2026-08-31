@@ -25,6 +25,7 @@ EXPECTED_CRISP_METHODS = {
     "SYAI",
     "TOPSIS",
     "VIKOR",
+    "WASPAS",
 }
 
 METHOD_PARAMETERS = {
@@ -36,6 +37,7 @@ METHOD_PARAMETERS = {
     "SYAI": {"beta": 0.35},
     "TOPSIS": {},
     "VIKOR": {"v": 0.7},
+    "WASPAS": {"lambda": 0.65},
 }
 
 
@@ -231,7 +233,9 @@ def test_fuzzy_and_unknown_methods_are_rejected(method: str):
         )
 
 
-@pytest.mark.parametrize("method", ["ARAS", "MOORA", "SAW", "TOPSIS", "VIKOR"])
+@pytest.mark.parametrize(
+    "method", ["ARAS", "MOORA", "SAW", "TOPSIS", "VIKOR", "WASPAS"]
+)
 def test_target_incompatible_methods_are_rejected(method: str):
     matrix = pd.DataFrame({"Target": [1.0, 2.0, 3.0]}, index=["A1", "A2", "A3"])
 

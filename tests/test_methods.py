@@ -10,7 +10,17 @@ from mcdm.presentation import RESULT_PRESENTATION
 from mcdm.validation import MCDMValidationError
 
 
-CRISP_METHODS = ["AURA", "ARAS", "SYAI", "ARIE", "MOORA", "TOPSIS", "SAW", "VIKOR"]
+CRISP_METHODS = [
+    "AURA",
+    "ARAS",
+    "SYAI",
+    "ARIE",
+    "MOORA",
+    "TOPSIS",
+    "SAW",
+    "VIKOR",
+    "WASPAS",
+]
 
 
 @pytest.fixture
@@ -41,7 +51,7 @@ def test_native_target_methods_select_exact_target(method):
     assert result.loc["Exact", "Rank"] == 1
 
 
-@pytest.mark.parametrize("method", ["ARAS", "MOORA", "TOPSIS", "SAW", "VIKOR"])
+@pytest.mark.parametrize("method", ["ARAS", "MOORA", "TOPSIS", "SAW", "VIKOR", "WASPAS"])
 def test_non_target_methods_reject_target_criteria(method):
     matrix = pd.DataFrame({"Target": [0.0, 5.0, 10.0]}, index=["Low", "Exact", "High"])
     with pytest.raises(UnsupportedCriterionError):
@@ -56,13 +66,13 @@ def test_non_target_methods_reject_target_criteria(method):
 def test_comparison_excludes_incompatible_methods():
     matrix = pd.DataFrame({"Target": [0.0, 5.0, 10.0]}, index=["Low", "Exact", "High"])
     comparison, excluded = compare_methods(
-        ["AURA", "ARIE", "MOORA", "TOPSIS"],
+        ["AURA", "ARIE", "MOORA", "TOPSIS", "WASPAS"],
         matrix,
         {"Target": 1.0},
         {"Target": {"type": "target", "value": 5.0}},
     )
     assert list(comparison.columns) == ["AURA", "ARIE"]
-    assert set(excluded) == {"MOORA", "TOPSIS"}
+    assert set(excluded) == {"MOORA", "TOPSIS", "WASPAS"}
 
 
 def test_aura_is_invariant_to_weight_scale(dominance_problem):
@@ -89,7 +99,7 @@ def test_ties_are_preserved(method):
     assert result["Rank"].tolist() == [1, 1, 1]
 
 
-@pytest.mark.parametrize("method", ["ARAS", "ARIE", "SAW"])
+@pytest.mark.parametrize("method", ["ARAS", "ARIE", "SAW", "WASPAS"])
 def test_reciprocal_cost_methods_reject_nonpositive_values(method):
     matrix = pd.DataFrame({"Cost": [0.0, 2.0, 4.0]}, index=["A1", "A2", "A3"])
     with pytest.raises(MCDMValidationError, match="strictly positive"):
@@ -105,6 +115,7 @@ GOLDEN = {
     "TOPSIS": ([1, 2, 3], [0.872961656104, 0.677941433046, 0.0]),
     "SAW": ([1, 2, 3], [0.9375, 0.736111111111, 0.377083333333]),
     "VIKOR": ([2, 1, 3], [0.0625, 0.05, 1.0]),
+    "WASPAS": ([1, 2, 3], [0.934052429551, 0.722829501234, 0.364889654978]),
 }
 
 

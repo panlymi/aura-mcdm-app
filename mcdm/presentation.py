@@ -23,4 +23,5 @@ RESULT_PRESENTATION: dict[str, ResultPresentation] = {
     "TOPSIS": ResultPresentation("Relative Closeness (C_i)", False, ("D+ (Ideal)", "D- (Anti-Ideal)", "Relative Closeness (C_i)"), "Closeness"),
     "SAW": ResultPresentation("V_i (SAW Score)", False, ("V_i (SAW Score)",), "Score"),
     "VIKOR": ResultPresentation("Q_i (VIKOR Index)", True, ("S_i (Utility)", "R_i (Regret)", "Q_i (VIKOR Index)"), "Index"),
+    "WASPAS": ResultPresentation("Q_i (WASPAS Score)", False, ("Q_i (WSM)", "Q_i (WPM)", "Q_i (WASPAS Score)"), "Score"),
 }

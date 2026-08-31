@@ -111,7 +111,7 @@ def validate_method_matrix(
 ) -> None:
     method_key = method.strip().upper()
     preferences = normalize_directions(data.columns, directions)
-    ratio_normalized_methods = {"ARAS", "ARIE", "SAW"}
+    ratio_normalized_methods = {"ARAS", "ARIE", "SAW", "WASPAS"}
     if method_key in ratio_normalized_methods:
         invalid_benefits = [
             criterion

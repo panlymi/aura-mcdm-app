@@ -45,6 +45,7 @@ py-modules = [
   "syai_calculator",
   "topsis_calculator",
   "vikor_calculator",
+  "waspas_calculator",
 ]
 
 [tool.pytest.ini_options]

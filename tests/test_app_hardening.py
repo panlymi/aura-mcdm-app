@@ -31,6 +31,7 @@ CRISP_METHODS = [
     "TOPSIS",
     "SAW",
     "VIKOR",
+    "WASPAS",
 ]
 
 
@@ -123,7 +124,7 @@ def test_uppercase_csv_calculates_and_displays_every_rank_one_tie():
     assert any("Next-ranked alternative(s): A3" in item.value for item in app.caption)
 
 
-def test_complete_formula_excel_download_is_available_for_aura_syai_and_arie():
+def test_complete_formula_excel_download_is_available_for_supported_methods():
     aura_app = _app_with_upload(CRISP_MATRIX)
     _run_baseline(aura_app)
 
@@ -155,6 +156,18 @@ def test_complete_formula_excel_download_is_available_for_aura_syai_and_arie():
     assert "📗 Download Complete AURA Excel Workbook" not in arie_downloads
     assert "📘 Download Complete SYAI Excel Workbook" not in arie_downloads
 
+    waspas_app = _app_with_upload(CRISP_MATRIX, method="WASPAS")
+    _run_baseline(waspas_app, "WASPAS")
+    waspas_downloads = {
+        button.label: button for button in waspas_app.download_button
+    }
+    assert not waspas_app.exception
+    assert "📕 Download Complete WASPAS Excel Workbook" in waspas_downloads
+    assert waspas_downloads["📕 Download Complete WASPAS Excel Workbook"].proto.url
+    assert "📗 Download Complete AURA Excel Workbook" not in waspas_downloads
+    assert "📘 Download Complete SYAI Excel Workbook" not in waspas_downloads
+    assert "📙 Download Complete ARIE Excel Workbook" not in waspas_downloads
+
     topsis_app = _app_with_upload(CRISP_MATRIX, method="TOPSIS")
     _run_baseline(topsis_app, "TOPSIS")
     assert not topsis_app.exception
@@ -162,6 +175,7 @@ def test_complete_formula_excel_download_is_available_for_aura_syai_and_arie():
     assert "📗 Download Complete AURA Excel Workbook" not in topsis_downloads
     assert "📘 Download Complete SYAI Excel Workbook" not in topsis_downloads
     assert "📙 Download Complete ARIE Excel Workbook" not in topsis_downloads
+    assert "📕 Download Complete WASPAS Excel Workbook" not in topsis_downloads
 
 
 def test_sensitivity_and_comparison_run_only_on_request_and_become_stale():

@@ -52,6 +52,7 @@ METHOD_CAPABILITIES: dict[str, frozenset[CriterionType]] = {
     "TOPSIS": frozenset({CriterionType.BENEFIT, CriterionType.COST}),
     "SAW": frozenset({CriterionType.BENEFIT, CriterionType.COST}),
     "VIKOR": frozenset({CriterionType.BENEFIT, CriterionType.COST}),
+    "WASPAS": frozenset({CriterionType.BENEFIT, CriterionType.COST}),
 }
 
 

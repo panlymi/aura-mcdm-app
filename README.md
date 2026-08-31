@@ -18,6 +18,7 @@ capability-aware cross-method comparison.
 | TOPSIS | Yes | Yes | No |
 | SAW | Yes | Yes | No |
 | VIKOR | Yes | Yes | No |
+| WASPAS | Yes | Yes | No |
 
 The application never silently treats a target as a benefit or cost. During a
 comparative analysis, methods that do not natively support the configured
@@ -87,7 +88,7 @@ Rules enforced by the application:
 - all crisp cells must be finite numeric values;
 - weights must be finite, non-negative, and have a positive total;
 - crisp weights are always normalized to sum to one;
-- ratio-normalized benefit criteria in ARAS, Fuzzy ARAS, ARIE, and SAW must be
+- ratio-normalized benefit criteria in ARAS, Fuzzy ARAS, ARIE, SAW, and WASPAS must be
   non-negative and contain at least one positive value;
 - reciprocal cost methods reject zero or negative cost values;
 - fuzzy numbers must be ordered TFNs or TrFNs with consistent arity;
@@ -95,9 +96,9 @@ Rules enforced by the application:
 - fuzzy weights must match the criteria exactly and have a positive total;
 - the SYAI trade-off parameter uses the published open interval `0 < beta < 1`.
 
-## Complete AURA, SYAI, and ARIE Excel exports
+## Complete AURA, SYAI, ARIE, and WASPAS Excel exports
 
-After an AURA, SYAI, or ARIE calculation, the Results tab provides a complete
+After an AURA, SYAI, ARIE, or WASPAS calculation, the Results tab provides a complete
 `.xlsx` workbook rather than a flat ranking table.
 
 The AURA workbook contains:
@@ -130,18 +131,30 @@ The ARIE workbook contains:
 - a **Verified Values** snapshot that reconciles every similarity contribution; and
 - a **Formula Guide** with the complete methodology and primary paper links.
 
-All three workbooks follow the research-sheet visual convention: orange weight rows,
+The WASPAS workbook contains:
+
+- a **WASPAS** sheet with live benefit/cost ratio normalization, separate WSM
+  and WPM contribution matrices, an editable lambda blend, competition ranks,
+  and a score-sorted final table;
+- a formula-linked **Decision Summary** with winner KPIs, blend stance, and a
+  native ranking chart;
+- a **Verified Values** snapshot that reconciles the canonical WSM, WPM, and
+  aggregate scores; and
+- a **Formula Guide** with the published equations and original paper links.
+
+All four workbooks follow the research-sheet visual convention: orange weight rows,
 yellow alternative cells, blue benefit headers, red cost headers, orange target
 headers, clear calculation grids, and visible formulas when a derived cell is
 selected. Excel is instructed to recalculate the live model automatically when
-opened. Changing SYAI's highlighted beta cell or ARIE's highlighted gamma and
-kappa cells refreshes the live scores, ranks, summary KPIs, and chart.
+opened. Changing SYAI's highlighted beta cell, ARIE's highlighted gamma and
+kappa cells, or WASPAS's highlighted lambda cell refreshes the live scores,
+ranks, summary KPIs, and chart.
 
 ## Monte Carlo simulation in Streamlit
 
 After running any non-fuzzy method's baseline calculation, open the **Monte
-Carlo Simulation** tab. AURA, ARAS, SYAI, ARIE, MOORA, TOPSIS, SAW, and VIKOR
-are supported. Fuzzy ARAS is excluded because fuzzy-weight uncertainty requires
+Carlo Simulation** tab. AURA, ARAS, SYAI, ARIE, MOORA, TOPSIS, SAW, VIKOR, and
+WASPAS are supported. Fuzzy ARAS is excluded because fuzzy-weight uncertainty requires
 a separate sampling model. Two reproducible weight-sampling modes are available:
 
 - **Global robustness** samples the complete weight simplex using
@@ -177,7 +190,7 @@ uv run --locked --all-extras ruff check .
 The suite covers golden benchmark outputs, dominant alternatives, target
 capabilities, weight-scale invariance, ties, invalid reciprocal inputs, fuzzy
 shape validation, calculation fingerprints, and agreement between the app and
-research paths. Monte Carlo regression cases compare all eight non-fuzzy batch
+research paths. Monte Carlo regression cases compare all nine non-fuzzy batch
 kernels with their scalar calculators, including global/local sampling, native
 targets, ties, and rank-acceptability probabilities. CI installs exclusively
 from `uv.lock`, verifies the exported runtime `requirements.txt`, and runs on
@@ -220,6 +233,9 @@ research reproducibility.
   Journal of Pure and Applied Mathematics* 18(4) (2025), 6560](https://www.ejpam.com/index.php/ejpam/article/view/6560/2443).
 - Brauers and Zavadskas, “Multi-objective Optimization with Discrete Alternatives
   on the Basis of Ratio Analysis,” *Intellectual Economics* 2(6) (2009).
+- Zavadskas et al., “Optimization of Weighted Aggregated Sum Product Assessment,”
+  *Elektronika ir Elektrotechnika* 122(6) (2012), 3–6.
+  DOI: 10.5755/j01.eee.122.6.1810.
 
 ## License
 

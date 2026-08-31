@@ -15,6 +15,7 @@ from saw_calculator import calculate_saw
 from syai_calculator import calculate_syai
 from topsis_calculator import calculate_topsis
 from vikor_calculator import calculate_vikor
+from waspas_calculator import calculate_waspas
 
 from .criteria import compatible_methods, validate_method_capabilities
 from .presentation import RESULT_PRESENTATION
@@ -51,6 +52,14 @@ def calculate_method(
         return calculate_saw(matrix, weights, directions, return_steps=return_steps)
     if method_key == "VIKOR":
         return calculate_vikor(matrix, weights, directions, parameters.get("v", 0.5), return_steps=return_steps)
+    if method_key == "WASPAS":
+        return calculate_waspas(
+            matrix,
+            weights,
+            directions,
+            parameters.get("lambda", 0.5),
+            return_steps=return_steps,
+        )
     raise ValueError(f"Unknown MCDM method: {method}")
 
 

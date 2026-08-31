@@ -21,6 +21,11 @@ from mcdm.syai_excel import (
     SYAI_EXCEL_EXPORT_REVISION,
     build_syai_excel_workbook,
 )
+from mcdm.waspas_excel import (
+    WASPAS_EXCEL_EXPORT_FILENAME,
+    WASPAS_EXCEL_EXPORT_REVISION,
+    build_waspas_excel_workbook,
+)
 from mcdm.criteria import CriterionType, METHOD_CAPABILITIES
 from mcdm.presentation import RESULT_PRESENTATION
 from mcdm.ranking import natural_sort_key
@@ -121,11 +126,32 @@ def build_arie_excel_download(
         kappa=kappa,
     )
 
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def build_waspas_excel_download(
+    matrix: pd.DataFrame,
+    weights: dict,
+    directions: dict,
+    lambda_value: float,
+    export_revision: str,
+) -> bytes:
+    """Build a cached, formula-rich WASPAS workbook for the current calculation."""
+
+    if export_revision != WASPAS_EXCEL_EXPORT_REVISION:
+        raise ValueError("The requested WASPAS workbook revision is no longer supported.")
+
+    return build_waspas_excel_workbook(
+        matrix,
+        weights,
+        directions,
+        lambda_value=lambda_value,
+    )
+
 st.set_page_config(page_title="MCDM Calculator", layout="wide", page_icon="📊")
 
 st.title("Multi-Criteria Decision Making (MCDM) Calculator 📊")
 st.markdown("""
-This application implements nine MCDM options:
+This application implements ten MCDM options:
 - **AURA** (Adaptive Utility Ranking Algorithm)
 - **ARAS** (Additive Ratio Assessment - Crisp & Fuzzy)
 - **SYAI** (Simplified Yielded Aggregation Index)
@@ -134,6 +160,7 @@ This application implements nine MCDM options:
 - **TOPSIS** (Technique for Order Preference by Similarity to Ideal Solution)
 - **SAW** (Simple Additive Weighting)
 - **VIKOR** (VlseKriterijumska Optimizacija I Kompromisno Resenje)
+- **WASPAS** (Weighted Aggregated Sum Product Assessment)
 
 ### Instructions:
 """)
@@ -144,7 +171,7 @@ st.sidebar.title("Configuration")
 st.sidebar.subheader("Method Selection")
 mcdm_method = st.sidebar.selectbox(
     "Choose MCDM Method", 
-    ["AURA", "ARAS", "Fuzzy ARAS", "SYAI", "ARIE", "MOORA", "TOPSIS", "SAW", "VIKOR"]
+    ["AURA", "ARAS", "Fuzzy ARAS", "SYAI", "ARIE", "MOORA", "TOPSIS", "SAW", "VIKOR", "WASPAS"]
 )
 
 weight_type = None
@@ -165,6 +192,7 @@ beta = 0.5
 gamma = 1.0
 kappa = 0.5
 v_param = 0.5
+lambda_value = 0.5
 
 # Method specific parameters in sidebar
 if mcdm_method == "AURA":
@@ -205,6 +233,19 @@ elif mcdm_method == "VIKOR":
         "Weight of strategy of 'majority of criteria' (v)",
         min_value=0.0, max_value=1.0, value=0.5, step=0.05,
         help="v > 0.5: voting by majority. v = 0.5: consensus. v < 0.5: veto."
+    )
+elif mcdm_method == "WASPAS":
+    st.sidebar.subheader("WASPAS Parameters")
+    lambda_value = st.sidebar.slider(
+        "WSM–WPM Balance (λ)",
+        min_value=0.0,
+        max_value=1.0,
+        value=0.5,
+        step=0.05,
+        help=(
+            "λ = 1 uses the Weighted Sum Model, λ = 0 uses the Weighted Product "
+            "Model, and λ = 0.5 gives an equal blend."
+        ),
     )
 
 st.sidebar.markdown("---")
@@ -263,7 +304,7 @@ if uploaded_file is None:
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.markdown("**Crisp Data (AURA/ARAS/SYAI/ARIE)**")
+        st.markdown("**Crisp Data (AURA/ARAS/SYAI/ARIE/WASPAS)**")
         df_crisp = pd.DataFrame({
             "Alternative": ["Car A", "Car B", "Car C"],
             "Cost": [20000, 25000, 18000],
@@ -603,6 +644,7 @@ else:
                 "gamma": gamma,
                 "kappa": kappa,
                 "v": v_param,
+                "lambda": lambda_value,
             }
             current_fingerprint = None
             if weights is not None and matrix_to_calc is not None and directions is not None:
@@ -842,6 +884,35 @@ else:
                         )
                     except (MCDMValidationError, ValueError, TypeError, KeyError) as exc:
                         st.error(f"The ARIE Excel workbook could not be generated: {exc}")
+
+                elif mcdm_method == "WASPAS":
+                    st.markdown("### Complete Excel calculation")
+                    st.caption(
+                        "Download a complete WASPAS decision workbook with a live "
+                        "lambda control, separate WSM and WPM contribution matrices, "
+                        "a decision-summary chart, verified values, and a formula guide."
+                    )
+                    try:
+                        waspas_workbook = build_waspas_excel_download(
+                            matrix_to_calc,
+                            dict(weights),
+                            dict(directions),
+                            float(parameters["lambda"]),
+                            WASPAS_EXCEL_EXPORT_REVISION,
+                        )
+                        st.download_button(
+                            "📕 Download Complete WASPAS Excel Workbook",
+                            data=waspas_workbook,
+                            file_name=WASPAS_EXCEL_EXPORT_FILENAME,
+                            mime=(
+                                "application/vnd.openxmlformats-officedocument."
+                                "spreadsheetml.sheet"
+                            ),
+                            use_container_width=True,
+                            key="download_complete_waspas_excel",
+                        )
+                    except (MCDMValidationError, ValueError, TypeError, KeyError) as exc:
+                        st.error(f"The WASPAS Excel workbook could not be generated: {exc}")
 
         # --- DETAILED STEPS TAB ---
         with tab_steps:
@@ -1118,6 +1189,74 @@ else:
                                 st.dataframe(steps_dict['Step 5: Final Result and Ranking'][['Rank', 'Relative Closeness (RC_i)']], use_container_width=True)
                             except KeyError: pass
 
+                elif mcdm_method == "WASPAS":
+                    with st.expander("Step 1: Original Decision Matrix", expanded=False):
+                        st.markdown("Original decision matrix $X = [x_{ij}]$.")
+                        st.dataframe(
+                            steps_dict.get("Step 1: Original Decision Matrix", pd.DataFrame()),
+                            use_container_width=True,
+                        )
+
+                    with st.expander("Step 2: Ratio-Normalized Decision Matrix", expanded=False):
+                        st.markdown(r'''
+                        **Normalization formulas:**
+                        - **Benefit criterion:** $r_{ij} = \frac{x_{ij}}{\max_i x_{ij}}$
+                        - **Cost criterion:** $r_{ij} = \frac{\min_i x_{ij}}{x_{ij}}$
+                        ''')
+                        st.dataframe(
+                            steps_dict.get("Step 2: Normalized Decision Matrix", pd.DataFrame()),
+                            use_container_width=True,
+                        )
+
+                    with st.expander("Steps 3 & 4: WSM and WPM Components", expanded=False):
+                        st.markdown(r'''
+                        **Weighted Sum component:** $q_{ij}^{(1)} = w_j r_{ij}$
+
+                        **Weighted Product component:** $q_{ij}^{(2)} = r_{ij}^{w_j}$
+                        ''')
+                        component_col1, component_col2 = st.columns(2)
+                        with component_col1:
+                            st.markdown("**WSM contributions**")
+                            st.dataframe(
+                                steps_dict.get("Step 3: Weighted Sum Components", pd.DataFrame()),
+                                use_container_width=True,
+                            )
+                        with component_col2:
+                            st.markdown("**WPM contributions**")
+                            st.dataframe(
+                                steps_dict.get("Step 4: Weighted Product Components", pd.DataFrame()),
+                                use_container_width=True,
+                            )
+
+                    with st.expander("Step 5: Aggregate WASPAS Score & Ranking", expanded=False):
+                        st.markdown(r'''
+                        **Component scores:**
+                        - $Q_i^{(1)} = \sum_j w_j r_{ij}$
+                        - $Q_i^{(2)} = \prod_j r_{ij}^{w_j}$
+
+                        **Final score:**
+                        $$Q_i = \lambda Q_i^{(1)} + (1-\lambda)Q_i^{(2)}$$
+
+                        Higher $Q_i$ values receive better ranks. At $\lambda=1$ the
+                        method becomes WSM; at $\lambda=0$ it becomes WPM.
+                        ''')
+                        score_col1, score_col2 = st.columns([2, 1])
+                        with score_col1:
+                            st.dataframe(
+                                steps_dict.get("Step 5: Aggregated Scores", pd.DataFrame()),
+                                use_container_width=True,
+                            )
+                        with score_col2:
+                            try:
+                                st.dataframe(
+                                    steps_dict["Step 6: Final Result and Ranking"][
+                                        ["Rank", "Q_i (WASPAS Score)"]
+                                    ],
+                                    use_container_width=True,
+                                )
+                            except KeyError:
+                                pass
+
                 elif mcdm_method == "ARAS":
                     with st.expander("Step 1: Decision Matrix with Optimal Alternative ($x_0$)", expanded=False):
                         st.markdown(r'''
@@ -1386,6 +1525,7 @@ else:
                     "SYAI",
                     "ARIE",
                     "VIKOR",
+                    "WASPAS",
                 ]
 
                 selected_criterion = None
@@ -1421,6 +1561,8 @@ else:
                     }
                 elif mcdm_method == "VIKOR":
                     parameter_ranges = {"v": np.linspace(0.0, 1.0, 11).tolist()}
+                elif mcdm_method == "WASPAS":
+                    parameter_ranges = {"lambda": np.linspace(0.0, 1.0, 11).tolist()}
 
                 sensitivity_controls = {
                     "criterion": selected_criterion,
@@ -1584,6 +1726,13 @@ else:
                                 parameter_ranges["v"],
                                 "Q_i (VIKOR Index)",
                             )
+                        elif mcdm_method == "WASPAS":
+                            sensitivity_output["parameter"] = parameter_sweep(
+                                "WASPAS",
+                                "lambda",
+                                parameter_ranges["lambda"],
+                                "Q_i (WASPAS Score)",
+                            )
 
                     st.session_state.sensitivity_result = sensitivity_output
                     st.session_state.sensitivity_fingerprint = (
@@ -1654,6 +1803,7 @@ else:
                                 "SYAI": "Beta (β)",
                                 "ARIE": "Gamma (γ)",
                                 "VIKOR": "v (Majority Weight)",
+                                "WASPAS": "Lambda (λ)",
                             }
                             alternatives = sorted(
                                 parameter_result["Alternative"].unique(),
@@ -2241,6 +2391,7 @@ else:
                     "TOPSIS",
                     "SAW",
                     "VIKOR",
+                    "WASPAS",
                 ]
                 selected_compare_methods = st.multiselect(
                     "Select Methods to Compare",

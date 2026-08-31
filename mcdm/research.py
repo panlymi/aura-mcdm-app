@@ -39,6 +39,7 @@ CRISP_MONTE_CARLO_METHODS = (
     "TOPSIS",
     "SAW",
     "VIKOR",
+    "WASPAS",
 )
 
 
@@ -363,7 +364,7 @@ def _prepare_method_batch_context(
             "anti_ideal_squared_difference": np.square(normalized - anti_ideal),
         }
 
-    if method == "SAW":
+    if method in {"SAW", "WASPAS"}:
         normalized = np.zeros_like(values, dtype=float)
         maximum = values.max(axis=0)
         minimum = values.min(axis=0)
@@ -379,7 +380,10 @@ def _prepare_method_batch_context(
                 normalized[nonzero, criterion_index] = (
                     minimum[criterion_index] / column[nonzero]
                 )
-        return {"normalized": normalized}
+        context: dict[str, Any] = {"normalized": normalized}
+        if method == "WASPAS":
+            context["lambda"] = float(parameters.get("lambda", 0.5))
+        return context
 
     if method == "SYAI":
         normalized = np.empty_like(values, dtype=float)
@@ -499,6 +503,18 @@ def _calculate_method_score_batch(
 
     if method == "SAW":
         return weights @ np.asarray(context["normalized"], dtype=float).T
+
+    if method == "WASPAS":
+        normalized = np.asarray(context["normalized"], dtype=float)
+        weighted_sum = weights @ normalized.T
+        weighted_product = np.ones_like(weighted_sum)
+        for criterion_index in range(normalized.shape[1]):
+            weighted_product *= np.power(
+                normalized[None, :, criterion_index],
+                weights[:, criterion_index, None],
+            )
+        lambda_value = float(context["lambda"])
+        return lambda_value * weighted_sum + (1.0 - lambda_value) * weighted_product
 
     if method == "SYAI":
         distance_ideal = (
