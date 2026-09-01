@@ -31,6 +31,21 @@ from mcdm.moora_excel import (
     MOORA_EXCEL_EXPORT_REVISION,
     build_moora_excel_workbook,
 )
+from mcdm.saw_excel import (
+    SAW_EXCEL_EXPORT_FILENAME,
+    SAW_EXCEL_EXPORT_REVISION,
+    build_saw_excel_workbook,
+)
+from mcdm.topsis_excel import (
+    TOPSIS_EXCEL_EXPORT_FILENAME,
+    TOPSIS_EXCEL_EXPORT_REVISION,
+    build_topsis_excel_workbook,
+)
+from mcdm.vikor_excel import (
+    VIKOR_EXCEL_EXPORT_FILENAME,
+    VIKOR_EXCEL_EXPORT_REVISION,
+    build_vikor_excel_workbook,
+)
 from mcdm.criteria import CriterionType, METHOD_CAPABILITIES
 from mcdm.presentation import RESULT_PRESENTATION
 from mcdm.ranking import natural_sort_key
@@ -169,6 +184,54 @@ def build_moora_excel_download(
         matrix,
         weights,
         directions,
+    )
+
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def build_saw_excel_download(
+    matrix: pd.DataFrame,
+    weights: dict,
+    directions: dict,
+    export_revision: str,
+) -> bytes:
+    """Build a cached, formula-rich SAW workbook for the current calculation."""
+
+    if export_revision != SAW_EXCEL_EXPORT_REVISION:
+        raise ValueError("The requested SAW workbook revision is no longer supported.")
+    return build_saw_excel_workbook(matrix, weights, directions)
+
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def build_topsis_excel_download(
+    matrix: pd.DataFrame,
+    weights: dict,
+    directions: dict,
+    export_revision: str,
+) -> bytes:
+    """Build a cached, formula-rich TOPSIS workbook for the current calculation."""
+
+    if export_revision != TOPSIS_EXCEL_EXPORT_REVISION:
+        raise ValueError("The requested TOPSIS workbook revision is no longer supported.")
+    return build_topsis_excel_workbook(matrix, weights, directions)
+
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def build_vikor_excel_download(
+    matrix: pd.DataFrame,
+    weights: dict,
+    directions: dict,
+    v_param: float,
+    export_revision: str,
+) -> bytes:
+    """Build a cached, formula-rich VIKOR workbook for the current calculation."""
+
+    if export_revision != VIKOR_EXCEL_EXPORT_REVISION:
+        raise ValueError("The requested VIKOR workbook revision is no longer supported.")
+    return build_vikor_excel_workbook(
+        matrix,
+        weights,
+        directions,
+        v_param=v_param,
     )
 
 st.set_page_config(page_title="MCDM Calculator", layout="wide", page_icon="📊")
@@ -965,6 +1028,91 @@ else:
                         )
                     except (MCDMValidationError, ValueError, TypeError, KeyError) as exc:
                         st.error(f"The MOORA Excel workbook could not be generated: {exc}")
+
+                elif mcdm_method == "SAW":
+                    st.markdown("### Complete Excel calculation")
+                    st.caption(
+                        "Download a complete SAW decision workbook with live benefit/cost "
+                        "ratio normalization, effective-weight calculations, additive scores, "
+                        "tie-safe ranks, a decision-summary chart, verified values, and a guide."
+                    )
+                    try:
+                        saw_workbook = build_saw_excel_download(
+                            matrix_to_calc,
+                            dict(weights),
+                            dict(directions),
+                            SAW_EXCEL_EXPORT_REVISION,
+                        )
+                        st.download_button(
+                            "📒 Download Complete SAW Excel Workbook",
+                            data=saw_workbook,
+                            file_name=SAW_EXCEL_EXPORT_FILENAME,
+                            mime=(
+                                "application/vnd.openxmlformats-officedocument."
+                                "spreadsheetml.sheet"
+                            ),
+                            use_container_width=True,
+                            key="download_complete_saw_excel",
+                        )
+                    except (MCDMValidationError, ValueError, TypeError, KeyError) as exc:
+                        st.error(f"The SAW Excel workbook could not be generated: {exc}")
+
+                elif mcdm_method == "TOPSIS":
+                    st.markdown("### Complete Excel calculation")
+                    st.caption(
+                        "Download a complete TOPSIS decision workbook with live vector "
+                        "normalization, positive/negative ideals, Euclidean distances, "
+                        "closeness, tie-safe ranks, a summary chart, verified values, and a guide."
+                    )
+                    try:
+                        topsis_workbook = build_topsis_excel_download(
+                            matrix_to_calc,
+                            dict(weights),
+                            dict(directions),
+                            TOPSIS_EXCEL_EXPORT_REVISION,
+                        )
+                        st.download_button(
+                            "📔 Download Complete TOPSIS Excel Workbook",
+                            data=topsis_workbook,
+                            file_name=TOPSIS_EXCEL_EXPORT_FILENAME,
+                            mime=(
+                                "application/vnd.openxmlformats-officedocument."
+                                "spreadsheetml.sheet"
+                            ),
+                            use_container_width=True,
+                            key="download_complete_topsis_excel",
+                        )
+                    except (MCDMValidationError, ValueError, TypeError, KeyError) as exc:
+                        st.error(f"The TOPSIS Excel workbook could not be generated: {exc}")
+
+                elif mcdm_method == "VIKOR":
+                    st.markdown("### Complete Excel calculation")
+                    st.caption(
+                        "Download a complete VIKOR decision workbook with an editable v "
+                        "control, live best/worst losses, group utility, individual regret, "
+                        "Q index, tie-safe ranks, a summary chart, verified values, and a guide."
+                    )
+                    try:
+                        vikor_workbook = build_vikor_excel_download(
+                            matrix_to_calc,
+                            dict(weights),
+                            dict(directions),
+                            float(parameters["v"]),
+                            VIKOR_EXCEL_EXPORT_REVISION,
+                        )
+                        st.download_button(
+                            "📚 Download Complete VIKOR Excel Workbook",
+                            data=vikor_workbook,
+                            file_name=VIKOR_EXCEL_EXPORT_FILENAME,
+                            mime=(
+                                "application/vnd.openxmlformats-officedocument."
+                                "spreadsheetml.sheet"
+                            ),
+                            use_container_width=True,
+                            key="download_complete_vikor_excel",
+                        )
+                    except (MCDMValidationError, ValueError, TypeError, KeyError) as exc:
+                        st.error(f"The VIKOR Excel workbook could not be generated: {exc}")
 
         # --- DETAILED STEPS TAB ---
         with tab_steps:

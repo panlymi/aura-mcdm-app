@@ -185,12 +185,33 @@ def test_complete_formula_excel_download_is_available_for_supported_methods():
     topsis_app = _app_with_upload(CRISP_MATRIX, method="TOPSIS")
     _run_baseline(topsis_app, "TOPSIS")
     assert not topsis_app.exception
-    topsis_downloads = [button.label for button in topsis_app.download_button]
+    topsis_downloads = {
+        button.label: button for button in topsis_app.download_button
+    }
+    assert "📔 Download Complete TOPSIS Excel Workbook" in topsis_downloads
+    assert topsis_downloads["📔 Download Complete TOPSIS Excel Workbook"].proto.url
     assert "📗 Download Complete AURA Excel Workbook" not in topsis_downloads
     assert "📘 Download Complete SYAI Excel Workbook" not in topsis_downloads
     assert "📙 Download Complete ARIE Excel Workbook" not in topsis_downloads
     assert "📕 Download Complete WASPAS Excel Workbook" not in topsis_downloads
     assert "📓 Download Complete MOORA Excel Workbook" not in topsis_downloads
+
+    saw_app = _app_with_upload(CRISP_MATRIX, method="SAW")
+    _run_baseline(saw_app, "SAW")
+    assert not saw_app.exception
+    saw_downloads = {button.label: button for button in saw_app.download_button}
+    assert "📒 Download Complete SAW Excel Workbook" in saw_downloads
+    assert saw_downloads["📒 Download Complete SAW Excel Workbook"].proto.url
+    assert "📔 Download Complete TOPSIS Excel Workbook" not in saw_downloads
+
+    vikor_app = _app_with_upload(CRISP_MATRIX, method="VIKOR")
+    _run_baseline(vikor_app, "VIKOR")
+    assert not vikor_app.exception
+    vikor_downloads = {button.label: button for button in vikor_app.download_button}
+    assert "📚 Download Complete VIKOR Excel Workbook" in vikor_downloads
+    assert vikor_downloads["📚 Download Complete VIKOR Excel Workbook"].proto.url
+    assert "📒 Download Complete SAW Excel Workbook" not in vikor_downloads
+    assert "📔 Download Complete TOPSIS Excel Workbook" not in vikor_downloads
 
 
 def test_sensitivity_and_comparison_run_only_on_request_and_become_stale():

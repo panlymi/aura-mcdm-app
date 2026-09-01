@@ -13,6 +13,7 @@ from openpyxl.comments import Comment
 from openpyxl.formatting.rule import ColorScaleRule, FormulaRule
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
 
 from moora_calculator import calculate_moora
 
@@ -40,7 +41,6 @@ from .syai_excel import (
     _style_grid,
     _style_matrix_header,
     _write_indexed_dataframe,
-    _write_live_weights_row,
 )
 from .validation import validate_crisp_matrix, validate_weights
 
@@ -48,10 +48,37 @@ from .validation import validate_crisp_matrix, validate_weights
 _NUMERICAL_GUARD = 1e-9
 
 # Included in Streamlit's cache key so workbook changes invalidate old bytes.
-MOORA_EXCEL_EXPORT_REVISION = "v1"
+MOORA_EXCEL_EXPORT_REVISION = "v2"
 MOORA_EXCEL_EXPORT_FILENAME = (
     f"moora_complete_formula_calculation_{MOORA_EXCEL_EXPORT_REVISION}.xlsx"
 )
+
+
+def _write_normalized_live_weights_row(
+    sheet,
+    row: int,
+    columns: list[str],
+    settings_data_start: int,
+    *,
+    weight_sum_row: int,
+) -> None:
+    """Write effective weights that mirror the app's automatic normalization."""
+
+    sheet.cell(row, 1, "Effective weight")
+    for offset, _criterion in enumerate(columns, start=2):
+        settings_row = settings_data_start + offset - 2
+        sheet.cell(
+            row,
+            offset,
+            f"=IF($B${weight_sum_row}<=0,0,$B${settings_row}/$B${weight_sum_row})",
+        )
+    for cell in sheet[row][: len(columns) + 1]:
+        cell.fill = _INPUT_FILL
+        cell.font = _HEADER_FONT
+        cell.border = _GRID_BORDER
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        if cell.column > 1:
+            cell.number_format = _WEIGHT_FORMAT
 
 
 def _build_formula_sheet(
@@ -119,7 +146,16 @@ def _build_formula_sheet(
         sheet.cell(row, 3, description)
     sheet.cell(9, 1, "Weight sum check")
     sheet.cell(9, 2, f"=SUM(B{settings_data_start}:B{settings_data_end})")
-    sheet.cell(9, 3, '="Expected 1.0000; current "&TEXT(B9,"0.0000")')
+    sheet.cell(
+        9,
+        3,
+        (
+            '=IF(B9<=0,"ERROR: enter at least one positive weight",'
+            f'IF(ABS(B9-1)<={_NUMERICAL_GUARD:.12g},'
+            '"OK — weights already sum to 1",'
+            '"OK — live formulas normalize weights to 1"))'
+        ),
+    )
     _style_grid(sheet, 5, 9, 1, 5)
     sheet.cell(5, 2).fill = _FORMULA_FILL
     sheet.cell(6, 2).fill = _FORMULA_FILL
@@ -149,6 +185,24 @@ def _build_formula_sheet(
     raw_data_end = raw_data_start + alternatives_count - 1
     matrix_denominator_row = raw_data_end + 1
 
+    weight_validation = DataValidation(
+        type="decimal",
+        operator="greaterThanOrEqual",
+        formula1="0",
+        allow_blank=False,
+    )
+    weight_validation.promptTitle = "Non-negative criterion weight"
+    weight_validation.prompt = (
+        "Enter any non-negative weight. Live effective weights are normalized automatically."
+    )
+    weight_validation.errorTitle = "Invalid weight"
+    weight_validation.error = "Weights must be numeric and non-negative."
+    weight_validation.errorStyle = "stop"
+    weight_validation.showInputMessage = True
+    weight_validation.showErrorMessage = True
+    sheet.add_data_validation(weight_validation)
+    weight_validation.add(f"B{settings_data_start}:B{settings_data_end}")
+
     for row_offset, criterion in enumerate(columns):
         row = settings_data_start + row_offset
         preference = preferences[criterion]
@@ -173,7 +227,8 @@ def _build_formula_sheet(
         sheet.cell(
             row,
             5,
-            f'="Normalized weight: "&TEXT(B{row}/$B$9,"0.0000")',
+            f'=IF($B$9<=0,"Invalid: total weight must be positive",'
+            f'"Normalized weight: "&TEXT(B{row}/$B$9,"0.0000"))',
         )
         sheet.cell(row, 5).font = Font(
             name="Aptos", size=9, italic=True, color="555555"
@@ -193,8 +248,12 @@ def _build_formula_sheet(
         last_matrix_column,
         "Step 1 — Original Decision Matrix and Vector Denominators",
     )
-    _write_live_weights_row(
-        sheet, raw_weights_row, columns, settings_data_start
+    _write_normalized_live_weights_row(
+        sheet,
+        raw_weights_row,
+        columns,
+        settings_data_start,
+        weight_sum_row=9,
     )
     sheet.cell(raw_header_row, 1, "Alternative")
     for column_index, criterion in enumerate(columns, start=2):
@@ -249,7 +308,13 @@ def _build_formula_sheet(
         last_matrix_column,
         "Step 2 — Vector (Ratio) Normalized Decision Matrix (x*_ij)",
     )
-    _write_live_weights_row(sheet, norm_weights_row, columns, settings_data_start)
+    _write_normalized_live_weights_row(
+        sheet,
+        norm_weights_row,
+        columns,
+        settings_data_start,
+        weight_sum_row=9,
+    )
     sheet.cell(norm_header_row, 1, "Alternative")
     for column_index, criterion in enumerate(columns, start=2):
         _set_text(sheet, norm_header_row, column_index, criterion)
@@ -272,7 +337,8 @@ def _build_formula_sheet(
             sheet.cell(
                 row,
                 column_index,
-                f"=IF({letter}${matrix_denominator_row}=0,0,{letter}{matrix_row}/{letter}${matrix_denominator_row})",
+                f"=IF(ABS({letter}${matrix_denominator_row})<={_NUMERICAL_GUARD:.12g},0,"
+                f"{letter}{matrix_row}/{letter}${matrix_denominator_row})",
             )
             sheet.cell(row, column_index).fill = _FORMULA_FILL
             sheet.cell(row, column_index).number_format = _CALC_NUMBER_FORMAT
@@ -289,8 +355,12 @@ def _build_formula_sheet(
         last_matrix_column,
         "Step 3 — Weighted Normalized Decision Matrix (v_ij = w_j × x*_ij)",
     )
-    _write_live_weights_row(
-        sheet, weighted_weights_row, columns, settings_data_start
+    _write_normalized_live_weights_row(
+        sheet,
+        weighted_weights_row,
+        columns,
+        settings_data_start,
+        weight_sum_row=9,
     )
     sheet.cell(weighted_header_row, 1, "Alternative")
     for column_index, criterion in enumerate(columns, start=2):
@@ -327,8 +397,8 @@ def _build_formula_sheet(
     _set_section_title(
         sheet,
         results_title_row,
-        5,
-        "Step 4 — Benefit Sum, Cost Sum, Normalized Assessment Value (y_i), and Rank",
+        6,
+        "Step 4 — Benefit/Cost Sums, Assessment Value, Rank, and Tie-Safe Sort Order",
     )
     result_headers = [
         "Alternative",
@@ -336,6 +406,7 @@ def _build_formula_sheet(
         "Sum (Minimize)",
         "Assessment Value (y_i)",
         "Rank",
+        "Sort Order",
     ]
     for column_index, header in enumerate(result_headers, start=1):
         sheet.cell(results_header_row, column_index, header)
@@ -378,7 +449,7 @@ def _build_formula_sheet(
         sheet.cell(
             row,
             5,
-            f"=RANK(D{row},$D${results_data_start}:$D${results_data_end},0)",
+            f"=RANK.EQ(D{row},$D${results_data_start}:$D${results_data_end},0)",
         )
         sheet.cell(row, 2).fill = _FORMULA_FILL
         sheet.cell(row, 3).fill = _FORMULA_FILL
@@ -390,11 +461,17 @@ def _build_formula_sheet(
         results_data_start,
         results_data_end,
         1,
-        5,
+        6,
         number_format=_CALC_NUMBER_FORMAT,
     )
     for row in range(results_data_start, results_data_end + 1):
         sheet.cell(row, 5).number_format = "0"
+        sheet.cell(
+            row,
+            6,
+            f"=E{row}+COUNTIF($D${results_data_start}:D{row},D{row})-1",
+        )
+        sheet.cell(row, 6).number_format = "0"
 
     ranking_title_row = results_data_end + 3
     ranking_header_row = ranking_title_row + 1
@@ -407,7 +484,7 @@ def _build_formula_sheet(
         5,
         "Step 5 — Final Ranking (Sorted by Score)",
     )
-    for column_index, header in enumerate(result_headers, start=1):
+    for column_index, header in enumerate(result_headers[:5], start=1):
         sheet.cell(ranking_header_row, column_index, header)
         sheet.cell(ranking_header_row, column_index).fill = _SECTION_FILL
         sheet.cell(ranking_header_row, column_index).font = _HEADER_FONT
@@ -423,7 +500,7 @@ def _build_formula_sheet(
     for sort_position in range(1, alternatives_count + 1):
         row = ranking_data_start + sort_position - 1
         match_formula = (
-            f"MATCH({sort_position},$E${results_data_start}:$E${results_data_end},0)"
+            f"MATCH({sort_position},$F${results_data_start}:$F${results_data_end},0)"
         )
         for column_index, source_letter in enumerate(["A", "B", "C", "D", "E"], start=1):
             sheet.cell(
@@ -501,7 +578,13 @@ def _build_summary_sheet(
 
     ranking_start = formula_positions["ranking_data_start"]
     cards = [
-        ("A", "B", "Winner", f"='MOORA'!A{ranking_start}", "@"),
+        (
+            "A",
+            "B",
+            "First Rank-1 Alternative",
+            f"='MOORA'!A{ranking_start}",
+            "@",
+        ),
         ("C", "D", "Winning Assessment Value", f"='MOORA'!D{ranking_start}", "0.0000"),
         ("E", "F", "Alternatives", "='MOORA'!B5", "0"),
         ("G", "H", "Total Criteria", "='MOORA'!B6", "0"),
@@ -797,7 +880,7 @@ def _build_guide_sheet(workbook: Workbook) -> None:
             [
                 "Each decision value is divided by the square root of the sum of squared values for that criterion across all alternatives:",
                 "x*_ij = x_ij / √(∑_{k=1}^m x_kj^2)",
-                "This maps each criterion to a dimensionless ratio between 0 and 1, ensuring criteria on different measurement scales are directly comparable.",
+                "This produces a dimensionless ratio, preserves the sign of each value, and keeps absolute normalized magnitudes at or below one.",
             ],
         ),
         (
@@ -832,7 +915,9 @@ def _build_guide_sheet(workbook: Workbook) -> None:
             "5. References and Primary Literature",
             [
                 "• Brauers, W. K. M., & Zavadskas, E. K. (2006). The MOORA method and its application to privatization in a transition economy. Control and Cybernetics, 35(2), 445–469.",
+                "https://pldml.icm.edu.pl/pldml/element/bwmeta1.element.bwnjournal-article-ccv35i2p445bwm",
                 "• Brauers, W. K. M., & Zavadskas, E. K. (2009). Multi-objective Optimization with Discrete Alternatives on the Basis of Ratio Analysis. Intellectual Economics, 2(6), 24–31.",
+                "https://ojs.mruni.eu/ojs/intellectual-economics/article/view/1193",
             ],
         ),
     ]
@@ -904,6 +989,10 @@ def build_moora_excel_workbook(
     workbook.calculation.fullCalcOnLoad = True
     workbook.calculation.forceFullCalc = True
     workbook.properties.version = MOORA_EXCEL_EXPORT_REVISION
+    workbook.properties.creator = "AURA MCDM App"
+    workbook.properties.title = "Complete MOORA calculation workbook"
+    workbook.properties.subject = "Auditable MOORA decision model"
+    workbook.properties.keywords = "MOORA, MCDM, decision analysis, formulas"
 
     positions = _build_formula_sheet(
         workbook,

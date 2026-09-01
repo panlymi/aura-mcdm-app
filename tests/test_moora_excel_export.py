@@ -57,7 +57,7 @@ def test_export_contains_live_model_summary_verified_values_and_guide():
     assert workbook.calculation.fullCalcOnLoad is True
     assert workbook.calculation.forceFullCalc is True
     assert workbook.properties.version == MOORA_EXCEL_EXPORT_REVISION
-    assert MOORA_EXCEL_EXPORT_FILENAME == "moora_complete_formula_calculation_v1.xlsx"
+    assert MOORA_EXCEL_EXPORT_FILENAME == "moora_complete_formula_calculation_v2.xlsx"
 
 
 def test_every_moora_stage_is_driven_by_live_excel_formulas():
@@ -75,8 +75,15 @@ def test_every_moora_stage_is_driven_by_live_excel_formulas():
         sheet, "Step 2 — Vector (Ratio) Normalized Decision Matrix (x*_ij)"
     )
     normalized_formula = sheet.cell(normalized_title.row + 3, 2).value
-    assert normalized_formula.startswith("=IF(")
+    assert normalized_formula.startswith("=IF(ABS(")
     assert str(den_row) in normalized_formula
+
+    assert sheet.cell(orig_title.row + 1, 2).value.startswith("=IF($B$9<=0,0,")
+    assert sheet["E14"].value.startswith('=IF($B$9<=0,"Invalid:')
+    assert any(
+        "B14:B16" in str(validation.sqref)
+        for validation in sheet.data_validations.dataValidation
+    )
 
     weighted_title = _find_cell(
         sheet, "Step 3 — Weighted Normalized Decision Matrix (v_ij = w_j × x*_ij)"
@@ -86,12 +93,14 @@ def test_every_moora_stage_is_driven_by_live_excel_formulas():
     assert "*" in weighted_formula
 
     result_title = _find_cell(
-        sheet, "Step 4 — Benefit Sum, Cost Sum, Normalized Assessment Value (y_i), and Rank"
+        sheet,
+        "Step 4 — Benefit/Cost Sums, Assessment Value, Rank, and Tie-Safe Sort Order",
     )
     first_result_row = result_title.row + 2
     assert "SUM(" in sheet.cell(first_result_row, 2).value or "=" in sheet.cell(first_result_row, 2).value
     assert sheet.cell(first_result_row, 4).value == f"=B{first_result_row}-C{first_result_row}"
-    assert sheet.cell(first_result_row, 5).value.startswith("=RANK(")
+    assert sheet.cell(first_result_row, 5).value.startswith("=RANK.EQ(")
+    assert "COUNTIF" in sheet.cell(first_result_row, 6).value
 
     formulas = [
         cell.value
@@ -113,6 +122,7 @@ def test_moora_sorted_ranking_table_matches_canonical_order():
         row = first_sorted_row + index
         assert sheet.cell(row, 1).value.startswith("=INDEX(")
         assert f"MATCH({index + 1}," in sheet.cell(row, 1).value
+        assert "$F$" in sheet.cell(row, 1).value
         assert sheet.cell(row, 5).number_format == "0"
 
     data_only = load_workbook(BytesIO(content), data_only=True)["MOORA"]
@@ -123,7 +133,7 @@ def test_decision_summary_sheet_contains_winner_cards_table_and_chart():
     _, workbook = _build_workbook()
     sheet = workbook["Decision Summary"]
 
-    assert sheet["A4"].value == "Winner"
+    assert sheet["A4"].value == "First Rank-1 Alternative"
     assert "='MOORA'!A" in str(sheet["A5"].value)
     assert sheet["C4"].value == "Winning Assessment Value"
     assert "='MOORA'!D" in str(sheet["C5"].value)
@@ -209,7 +219,9 @@ def test_formula_guide_contains_complete_equations_and_primary_reference():
 
     assert any("x*_ij = x_ij / √(∑" in str(value) for value in values)
     assert any("y_i = ∑_{j ∈ B} v_ij - ∑_{j ∈ C} v_ij" in str(value) for value in values)
-    assert "https://www.semanticscholar.org" in str(values) or any("Brauers" in str(value) for value in values)
+    assert any("Brauers" in str(value) for value in values)
+    assert any(str(value).startswith("https://") for value in values)
+    assert any("preserves the sign" in str(value) for value in values)
 
 
 def test_decimal_format_suppresses_trailing_zeros():
