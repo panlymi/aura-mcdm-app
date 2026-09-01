@@ -59,7 +59,7 @@ def test_export_contains_complete_formula_model_and_metadata():
     assert workbook.calculation.fullCalcOnLoad is True
     assert workbook.calculation.forceFullCalc is True
     assert workbook.properties.version == VIKOR_EXCEL_EXPORT_REVISION
-    assert VIKOR_EXCEL_EXPORT_FILENAME == "vikor_complete_formula_calculation_v1.xlsx"
+    assert VIKOR_EXCEL_EXPORT_FILENAME == "vikor_complete_formula_calculation_v2.xlsx"
 
 
 def test_live_vikor_formulas_cover_losses_utility_regret_q_and_ties():
@@ -100,6 +100,8 @@ def test_live_vikor_formulas_cover_losses_utility_regret_q_and_ties():
     assert sheet.cell(first_result_row, 5).value.startswith("=IF(ABS(")
     assert "*(1-" not in sheet.cell(first_result_row, 6).value
     assert sheet.cell(first_result_row, 6).value.startswith("=$B$")
+    assert sheet.cell(first_result_row, 7).value.startswith("=RANK(")
+    assert "RANK.EQ" not in sheet.cell(first_result_row, 7).value
     assert sheet.cell(first_result_row, 7).value.endswith(",1)")
     assert "COUNTIF" in sheet.cell(first_result_row, 8).value
 

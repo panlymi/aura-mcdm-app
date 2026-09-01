@@ -57,7 +57,7 @@ def test_export_contains_live_model_summary_verified_values_and_guide():
     assert workbook.calculation.fullCalcOnLoad is True
     assert workbook.calculation.forceFullCalc is True
     assert workbook.properties.version == MOORA_EXCEL_EXPORT_REVISION
-    assert MOORA_EXCEL_EXPORT_FILENAME == "moora_complete_formula_calculation_v2.xlsx"
+    assert MOORA_EXCEL_EXPORT_FILENAME == "moora_complete_formula_calculation_v3.xlsx"
 
 
 def test_every_moora_stage_is_driven_by_live_excel_formulas():
@@ -99,7 +99,8 @@ def test_every_moora_stage_is_driven_by_live_excel_formulas():
     first_result_row = result_title.row + 2
     assert "SUM(" in sheet.cell(first_result_row, 2).value or "=" in sheet.cell(first_result_row, 2).value
     assert sheet.cell(first_result_row, 4).value == f"=B{first_result_row}-C{first_result_row}"
-    assert sheet.cell(first_result_row, 5).value.startswith("=RANK.EQ(")
+    assert sheet.cell(first_result_row, 5).value.startswith("=RANK(")
+    assert "RANK.EQ" not in sheet.cell(first_result_row, 5).value
     assert "COUNTIF" in sheet.cell(first_result_row, 6).value
 
     formulas = [

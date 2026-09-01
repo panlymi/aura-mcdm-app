@@ -56,15 +56,15 @@ from .validation import validate_crisp_matrix, validate_method_matrix, validate_
 _NUMERICAL_GUARD = 1e-9
 _ERROR_FILL = PatternFill(fill_type="solid", fgColor="F4CCCC")
 
-SAW_EXCEL_EXPORT_REVISION = "v1"
+SAW_EXCEL_EXPORT_REVISION = "v2"
 SAW_EXCEL_EXPORT_FILENAME = (
     f"saw_complete_formula_calculation_{SAW_EXCEL_EXPORT_REVISION}.xlsx"
 )
-TOPSIS_EXCEL_EXPORT_REVISION = "v1"
+TOPSIS_EXCEL_EXPORT_REVISION = "v2"
 TOPSIS_EXCEL_EXPORT_FILENAME = (
     f"topsis_complete_formula_calculation_{TOPSIS_EXCEL_EXPORT_REVISION}.xlsx"
 )
-VIKOR_EXCEL_EXPORT_REVISION = "v1"
+VIKOR_EXCEL_EXPORT_REVISION = "v2"
 VIKOR_EXCEL_EXPORT_FILENAME = (
     f"vikor_complete_formula_calculation_{VIKOR_EXCEL_EXPORT_REVISION}.xlsx"
 )
@@ -1000,7 +1000,7 @@ def build_saw_excel_workbook(
         sheet.cell(
             row,
             3,
-            f"=RANK.EQ(B{row},$B${results_data_start}:$B${results_data_end},0)",
+            f"=RANK(B{row},$B${results_data_start}:$B${results_data_end},0)",
         )
         sheet.cell(
             row,
@@ -1356,7 +1356,7 @@ def build_topsis_excel_workbook(
         sheet.cell(
             row,
             5,
-            f"=RANK.EQ(D{row},$D${results_data_start}:$D${results_data_end},0)",
+            f"=RANK(D{row},$D${results_data_start}:$D${results_data_end},0)",
         )
         sheet.cell(
             row,
@@ -1833,7 +1833,7 @@ def build_vikor_excel_workbook(
         sheet.cell(
             row,
             7,
-            f"=RANK.EQ(F{row},$F${results_data_start}:$F${results_data_end},1)",
+            f"=RANK(F{row},$F${results_data_start}:$F${results_data_end},1)",
         )
         sheet.cell(
             row,

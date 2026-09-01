@@ -48,7 +48,7 @@ from .validation import validate_crisp_matrix, validate_weights
 _NUMERICAL_GUARD = 1e-9
 
 # Included in Streamlit's cache key so workbook changes invalidate old bytes.
-MOORA_EXCEL_EXPORT_REVISION = "v2"
+MOORA_EXCEL_EXPORT_REVISION = "v3"
 MOORA_EXCEL_EXPORT_FILENAME = (
     f"moora_complete_formula_calculation_{MOORA_EXCEL_EXPORT_REVISION}.xlsx"
 )
@@ -449,7 +449,7 @@ def _build_formula_sheet(
         sheet.cell(
             row,
             5,
-            f"=RANK.EQ(D{row},$D${results_data_start}:$D${results_data_end},0)",
+            f"=RANK(D{row},$D${results_data_start}:$D${results_data_end},0)",
         )
         sheet.cell(row, 2).fill = _FORMULA_FILL
         sheet.cell(row, 3).fill = _FORMULA_FILL

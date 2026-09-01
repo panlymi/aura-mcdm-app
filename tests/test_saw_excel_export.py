@@ -53,7 +53,7 @@ def test_export_contains_complete_formula_model_and_metadata():
     assert workbook.calculation.fullCalcOnLoad is True
     assert workbook.calculation.forceFullCalc is True
     assert workbook.properties.version == SAW_EXCEL_EXPORT_REVISION
-    assert SAW_EXCEL_EXPORT_FILENAME == "saw_complete_formula_calculation_v1.xlsx"
+    assert SAW_EXCEL_EXPORT_FILENAME == "saw_complete_formula_calculation_v2.xlsx"
 
 
 def test_live_saw_formulas_cover_normalization_weighting_scoring_and_ties():
@@ -80,7 +80,8 @@ def test_live_saw_formulas_cover_normalization_weighting_scoring_and_ties():
     )
     first_result_row = result_title.row + 2
     assert sheet.cell(first_result_row, 2).value.startswith("=SUM(")
-    assert sheet.cell(first_result_row, 3).value.startswith("=RANK.EQ(")
+    assert sheet.cell(first_result_row, 3).value.startswith("=RANK(")
+    assert "RANK.EQ" not in sheet.cell(first_result_row, 3).value
     assert "COUNTIF" in sheet.cell(first_result_row, 4).value
 
     ranking_title = _find_cell(sheet, "Final Ranking — Sorted by SAW Score")

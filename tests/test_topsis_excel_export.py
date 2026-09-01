@@ -53,7 +53,7 @@ def test_export_contains_complete_formula_model_and_metadata():
     assert workbook.calculation.fullCalcOnLoad is True
     assert workbook.calculation.forceFullCalc is True
     assert workbook.properties.version == TOPSIS_EXCEL_EXPORT_REVISION
-    assert TOPSIS_EXCEL_EXPORT_FILENAME == "topsis_complete_formula_calculation_v1.xlsx"
+    assert TOPSIS_EXCEL_EXPORT_FILENAME == "topsis_complete_formula_calculation_v2.xlsx"
 
 
 def test_live_topsis_formulas_cover_every_stage_and_tie_safe_sorting():
@@ -87,7 +87,8 @@ def test_live_topsis_formulas_cover_every_stage_and_tie_safe_sorting():
     assert sheet.cell(first_result_row, 2).value.startswith("=SQRT(SUM(")
     assert sheet.cell(first_result_row, 3).value.startswith("=SQRT(SUM(")
     assert sheet.cell(first_result_row, 4).value.startswith("=IF(")
-    assert sheet.cell(first_result_row, 5).value.startswith("=RANK.EQ(")
+    assert sheet.cell(first_result_row, 5).value.startswith("=RANK(")
+    assert "RANK.EQ" not in sheet.cell(first_result_row, 5).value
     assert "COUNTIF" in sheet.cell(first_result_row, 6).value
 
     ranking_title = _find_cell(sheet, "Final Ranking — Sorted by Relative Closeness")
