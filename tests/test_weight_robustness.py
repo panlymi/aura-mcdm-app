@@ -122,15 +122,29 @@ def test_build_weight_robustness_excel_workbook(sample_matrix, sample_directions
         top_k=2,
     )
     xlsx_bytes = build_weight_robustness_excel_workbook(
-        table_4, rankings_df, weights_df, method="AURA", baseline_name="Official"
+        table_4, rankings_df, weights_df, method="AURA", baseline_name="Official", top_k=2
     )
     assert xlsx_bytes.startswith(b"PK")
-    wb = load_workbook(BytesIO(xlsx_bytes))
+    wb = load_workbook(BytesIO(xlsx_bytes), data_only=False)
     assert wb.sheetnames == [
         "Table 4 - Robustness Summary",
         "Rankings by Scenario",
+        "Displacement Matrix",
         "Criteria Weights by Scenario",
     ]
+
+    ws_t4 = wb["Table 4 - Robustness Summary"]
+    # Row 5 is Official scenario
+    assert "=" in str(ws_t4.cell(5, 2).value) # CORREL rho with official
+    assert "CORREL" in str(ws_t4.cell(5, 2).value)
+    assert "=" in str(ws_t4.cell(5, 3).value) # CORREL rho with equal
+    assert "MAX" in str(ws_t4.cell(5, 4).value) # MAX displacement formula
+    assert "COUNTIFS" in str(ws_t4.cell(5, 5).value) # Jaccard formula
+    assert "AVERAGE" in str(ws_t4.cell(5, 7).value) # MARD formula
+
+    # Verify Displacement Matrix formulas
+    ws_disp = wb["Displacement Matrix"]
+    assert "ABS" in str(ws_disp.cell(5, 2).value)
 
 
 def test_build_weight_calculation_excel_workbook(sample_matrix, sample_directions):

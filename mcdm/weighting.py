@@ -350,69 +350,46 @@ def build_weight_robustness_excel_workbook(
     *,
     method: str = "AURA",
     baseline_name: str = "Official",
+    top_k: int | None = None,
 ) -> bytes:
-    """Return a styled XLSX workbook containing Table 4 and detailed scenario breakdowns."""
+    """Return a styled XLSX workbook containing Table 4 with live dynamic formulas."""
     from io import BytesIO
+    import re
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
     from openpyxl.utils import get_column_letter
+
+    # Infer top_k from column names if not provided
+    if top_k is None or top_k <= 0:
+        top_k = len(rankings_df)
+        for col in table_4_df.columns:
+            m = re.search(r"Top-(\d+)", col)
+            if m:
+                top_k = int(m.group(1))
+                break
 
     wb = Workbook()
     
     # Styles
     title_font = Font(name="Aptos", size=14, bold=True, color="1B365D")
     subtitle_font = Font(name="Aptos", size=9, italic=True, color="666666")
-    section_font = Font(name="Aptos", size=11, bold=True, color="1B365D")
     header_font = Font(name="Aptos", size=10, bold=True, color="FFFFFF")
     body_font = Font(name="Aptos", size=10)
+    body_bold = Font(name="Aptos", size=10, bold=True)
     
     header_fill = PatternFill(start_color="1B365D", end_color="1B365D", fill_type="solid")
     alt_fill = PatternFill(start_color="F2F5F9", end_color="F2F5F9", fill_type="solid")
     white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+    summary_fill = PatternFill(start_color="E2F0D9", end_color="E2F0D9", fill_type="solid")
     
     thin_side = Side(border_style="thin", color="D9D9D9")
     grid_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
 
-    # 1. Sheet 1: Table 4 Summary
-    ws_t4 = wb.active
-    ws_t4.title = "Table 4 - Robustness Summary"
-    ws_t4.sheet_view.showGridLines = True
-    
-    ws_t4.cell(1, 1, f"Table 4 — {method.upper()} Robustness under Alternative Deterministic Weights").font = title_font
-    ws_t4.cell(2, 1, f"Comparison of {method.upper()} rankings across deterministic weight scenarios relative to {baseline_name} and Equal weights.").font = subtitle_font
-    
-    # Write Table 4
-    t4_reset = table_4_df.reset_index()
-    header_row = 4
-    for c_idx, col_name in enumerate(t4_reset.columns, start=1):
-        cell = ws_t4.cell(header_row, c_idx, col_name)
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = Alignment(horizontal="center" if c_idx > 1 else "left", vertical="center")
+    n_alts = len(rankings_df)
+    rk_start_row = 5
+    rk_end_row = 4 + n_alts
 
-    for r_offset, row_data in enumerate(t4_reset.itertuples(index=False), start=1):
-        r_idx = header_row + r_offset
-        row_fill = alt_fill if r_offset % 2 == 1 else white_fill
-        for c_idx, val in enumerate(row_data, start=1):
-            cell = ws_t4.cell(r_idx, c_idx, val)
-            cell.font = body_font
-            cell.fill = row_fill
-            cell.border = grid_border
-            if c_idx == 1:
-                cell.alignment = Alignment(horizontal="left", vertical="center")
-            else:
-                cell.alignment = Alignment(horizontal="right", vertical="center")
-                col_name = t4_reset.columns[c_idx - 1]
-                if "displacement" in col_name.lower():
-                    cell.number_format = "0"
-                elif "overlap" in col_name.lower() or "jaccard" in col_name.lower():
-                    cell.number_format = "0.000"
-                elif "mard" in col_name.lower():
-                    cell.number_format = "0.00"
-                else:
-                    cell.number_format = "0.0000"
-
-    # 2. Sheet 2: Rankings by Scenario
+    # 1. Sheet 2: Rankings by Scenario (Build this first so we know column positions)
     ws_rk = wb.create_sheet(title="Rankings by Scenario")
     ws_rk.sheet_view.showGridLines = True
     ws_rk.cell(1, 1, f"{method.upper()} Alternative Rankings Across Weight Scenarios").font = title_font
@@ -423,11 +400,24 @@ def build_weight_robustness_excel_workbook(
         rk_reset.rename(columns={rk_reset.columns[0]: "Alternative"}, inplace=True)
     
     header_row = 4
+    scenario_col_letters = {}
+    base_col_idx = 2
+    equal_col_idx = 2
+
     for c_idx, col_name in enumerate(rk_reset.columns, start=1):
         cell = ws_rk.cell(header_row, c_idx, col_name)
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = Alignment(horizontal="center" if c_idx > 1 else "left", vertical="center")
+        if c_idx > 1:
+            scenario_col_letters[col_name] = get_column_letter(c_idx)
+            if col_name.lower() == baseline_name.lower():
+                base_col_idx = c_idx
+            if col_name.lower() == "equal":
+                equal_col_idx = c_idx
+
+    base_col_let = get_column_letter(base_col_idx)
+    equal_col_let = get_column_letter(equal_col_idx)
 
     for r_offset, row_data in enumerate(rk_reset.itertuples(index=False), start=1):
         r_idx = header_row + r_offset
@@ -443,7 +433,128 @@ def build_weight_robustness_excel_workbook(
                 cell.alignment = Alignment(horizontal="center", vertical="center")
                 cell.number_format = "0"
 
-    # 3. Sheet 3: Criteria Weights by Scenario
+    # 2. Sheet 4: Displacement & Deviations
+    ws_disp = wb.create_sheet(title="Displacement Matrix")
+    ws_disp.sheet_view.showGridLines = True
+    ws_disp.cell(1, 1, f"Absolute Rank Displacement relative to {baseline_name} (|R_i(scenario) - R_i({baseline_name})|)").font = title_font
+    ws_disp.cell(2, 1, f"Live formulas computing rank jumps and absolute differences for every alternative.").font = subtitle_font
+
+    for c_idx, col_name in enumerate(rk_reset.columns, start=1):
+        cell = ws_disp.cell(header_row, c_idx, col_name)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center" if c_idx > 1 else "left", vertical="center")
+
+    for r_offset, row_data in enumerate(rk_reset.itertuples(index=False), start=1):
+        r_idx = header_row + r_offset
+        row_fill = alt_fill if r_offset % 2 == 1 else white_fill
+        alt_name = row_data[0]
+        # Col 1: Alternative
+        c_alt = ws_disp.cell(r_idx, 1, alt_name)
+        c_alt.font = body_font
+        c_alt.fill = row_fill
+        c_alt.border = grid_border
+        c_alt.alignment = Alignment(horizontal="left", vertical="center")
+
+        # Cols 2+: =ABS('Rankings by Scenario'!ColRow - 'Rankings by Scenario'!$BaseColRow)
+        for c_idx in range(2, len(rk_reset.columns) + 1):
+            col_let = get_column_letter(c_idx)
+            disp_formula = f"=ABS('Rankings by Scenario'!{col_let}{r_idx} - 'Rankings by Scenario'!${base_col_let}{r_idx})"
+            c_disp = ws_disp.cell(r_idx, c_idx, disp_formula)
+            c_disp.font = body_font
+            c_disp.fill = row_fill
+            c_disp.border = grid_border
+            c_disp.alignment = Alignment(horizontal="center", vertical="center")
+            c_disp.number_format = "0"
+
+    disp_end_row = header_row + n_alts
+
+    # 3. Sheet 1: Table 4 Summary (Active Sheet) with LIVE FORMULAS
+    ws_t4 = wb.active
+    ws_t4.title = "Table 4 - Robustness Summary"
+    ws_t4.sheet_view.showGridLines = True
+    
+    ws_t4.cell(1, 1, f"Table 4 — {method.upper()} Robustness under Alternative Deterministic Weights").font = title_font
+    ws_t4.cell(2, 1, f"Live formulas evaluating rank correlation and displacement relative to {baseline_name} and Equal weights.").font = subtitle_font
+    
+    t4_reset = table_4_df.reset_index()
+    for c_idx, col_name in enumerate(t4_reset.columns, start=1):
+        cell = ws_t4.cell(header_row, c_idx, col_name)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center" if c_idx > 1 else "left", vertical="center")
+
+    for r_offset, row_data in enumerate(t4_reset.itertuples(index=False), start=1):
+        r_idx = header_row + r_offset
+        scen_name = str(row_data[0])
+        scen_col_let = scenario_col_letters.get(scen_name, base_col_let)
+        row_fill = alt_fill if r_offset % 2 == 1 else white_fill
+
+        # Col 1: Scenario Name
+        c1 = ws_t4.cell(r_idx, 1, scen_name)
+        c1.font = body_bold
+        c1.fill = row_fill
+        c1.border = grid_border
+        c1.alignment = Alignment(horizontal="left", vertical="center")
+
+        # Col 2: ρ with official -> =CORREL('Rankings by Scenario'!Col5:ColEnd, 'Rankings by Scenario'!$BaseCol5:$BaseColEnd)
+        rho_official_formula = f"=CORREL('Rankings by Scenario'!{scen_col_let}${rk_start_row}:{scen_col_let}${rk_end_row}, 'Rankings by Scenario'!${base_col_let}${rk_start_row}:${base_col_let}${rk_end_row})"
+        c2 = ws_t4.cell(r_idx, 2, rho_official_formula)
+        c2.font = body_font
+        c2.fill = row_fill
+        c2.border = grid_border
+        c2.alignment = Alignment(horizontal="right", vertical="center")
+        c2.number_format = "0.0000"
+
+        # Col 3: ρ with equal-weight -> =CORREL('Rankings by Scenario'!Col5:ColEnd, 'Rankings by Scenario'!$EqualCol5:$EqualColEnd)
+        rho_equal_formula = f"=CORREL('Rankings by Scenario'!{scen_col_let}${rk_start_row}:{scen_col_let}${rk_end_row}, 'Rankings by Scenario'!${equal_col_let}${rk_start_row}:${equal_col_let}${rk_end_row})"
+        c3 = ws_t4.cell(r_idx, 3, rho_equal_formula)
+        c3.font = body_font
+        c3.fill = row_fill
+        c3.border = grid_border
+        c3.alignment = Alignment(horizontal="right", vertical="center")
+        c3.number_format = "0.0000"
+
+        # Col 4: Maximum displacement -> =MAX('Displacement Matrix'!Col5:ColEnd)
+        max_disp_formula = f"=MAX('Displacement Matrix'!{scen_col_let}${rk_start_row}:{scen_col_let}${disp_end_row})"
+        c4 = ws_t4.cell(r_idx, 4, max_disp_formula)
+        c4.font = body_font
+        c4.fill = row_fill
+        c4.border = grid_border
+        c4.alignment = Alignment(horizontal="right", vertical="center")
+        c4.number_format = "0"
+
+        # Col 5: Top-K overlap with baseline -> COUNTIFS / (COUNTIF + COUNTIF - COUNTIFS)
+        jaccard_formula = (
+            f"=COUNTIFS('Rankings by Scenario'!{scen_col_let}${rk_start_row}:{scen_col_let}${rk_end_row}, \"<={top_k}\", 'Rankings by Scenario'!${base_col_let}${rk_start_row}:${base_col_let}${rk_end_row}, \"<={top_k}\") / "
+            f"(COUNTIF('Rankings by Scenario'!{scen_col_let}${rk_start_row}:{scen_col_let}${rk_end_row}, \"<={top_k}\") + COUNTIF('Rankings by Scenario'!${base_col_let}${rk_start_row}:${base_col_let}${rk_end_row}, \"<={top_k}\") - COUNTIFS('Rankings by Scenario'!{scen_col_let}${rk_start_row}:{scen_col_let}${rk_end_row}, \"<={top_k}\", 'Rankings by Scenario'!${base_col_let}${rk_start_row}:${base_col_let}${rk_end_row}, \"<={top_k}\"))"
+        )
+        c5 = ws_t4.cell(r_idx, 5, jaccard_formula)
+        c5.font = body_font
+        c5.fill = row_fill
+        c5.border = grid_border
+        c5.alignment = Alignment(horizontal="right", vertical="center")
+        c5.number_format = "0.000"
+
+        # Col 6: Kendall τ-b
+        tau_val = float(table_4_df.loc[scen_name, "Kendall τ-b"]) if "Kendall τ-b" in table_4_df.columns else 1.0
+        c6 = ws_t4.cell(r_idx, 6, tau_val)
+        c6.font = body_font
+        c6.fill = row_fill
+        c6.border = grid_border
+        c6.alignment = Alignment(horizontal="right", vertical="center")
+        c6.number_format = "0.0000"
+
+        # Col 7: MARD -> =AVERAGE('Displacement Matrix'!Col5:ColEnd)
+        mard_formula = f"=AVERAGE('Displacement Matrix'!{scen_col_let}${rk_start_row}:{scen_col_let}${disp_end_row})"
+        c7 = ws_t4.cell(r_idx, 7, mard_formula)
+        c7.font = body_font
+        c7.fill = row_fill
+        c7.border = grid_border
+        c7.alignment = Alignment(horizontal="right", vertical="center")
+        c7.number_format = "0.00"
+
+    # 4. Sheet 3: Criteria Weights by Scenario
     ws_wt = wb.create_sheet(title="Criteria Weights by Scenario")
     ws_wt.sheet_view.showGridLines = True
     ws_wt.cell(1, 1, "Criteria Weights Across Deterministic Scenarios").font = title_font
@@ -453,7 +564,6 @@ def build_weight_robustness_excel_workbook(
     if wt_reset.columns[0] != "Criterion":
         wt_reset.rename(columns={wt_reset.columns[0]: "Criterion"}, inplace=True)
         
-    header_row = 4
     for c_idx, col_name in enumerate(wt_reset.columns, start=1):
         cell = ws_wt.cell(header_row, c_idx, col_name)
         cell.font = header_font
@@ -484,7 +594,7 @@ def build_weight_robustness_excel_workbook(
                 if cell.row in (1, 2):
                     continue
                 max_len = max(max_len, len(val_str))
-            ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+            ws.column_dimensions[col_letter].width = max(max_len + 4, 13)
 
     buf = BytesIO()
     wb.save(buf)

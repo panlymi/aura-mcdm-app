@@ -3340,7 +3340,7 @@ else:
                         with col_dl2:
                             try:
                                 wb_bytes = build_weight_robustness_excel_workbook(
-                                    t4_df, rk_df, wt_df, method=mcdm_method, baseline_name=b_name
+                                    t4_df, rk_df, wt_df, method=mcdm_method, baseline_name=b_name, top_k=k_val
                                 )
                                 st.download_button(
                                     "📗 Download Table 4 & Rankings (XLSX)",
