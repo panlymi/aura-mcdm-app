@@ -857,31 +857,17 @@ def _workbook_bytes(workbook: Workbook) -> bytes:
     return buffer.getvalue()
 
 
-def build_saw_excel_workbook(
-    data: pd.DataFrame,
-    weights: Mapping[str, Any],
-    directions: Mapping[str, Any],
-) -> bytes:
-    """Return a complete formula-driven SAW workbook as XLSX bytes."""
-
-    frame = validate_crisp_matrix(data)
-    columns = [str(column) for column in frame.columns]
-    preferences = validate_method_capabilities("SAW", columns, directions)
-    validate_method_matrix("SAW", frame, directions)
-    normalized_weights = validate_weights(weights, columns, normalize=True)
-    results, steps = calculate_saw(
-        frame,
-        normalized_weights,
-        _legacy_directions(columns, preferences),
-        return_steps=True,
-    )
-
-    workbook = _new_workbook(method="SAW", revision=SAW_EXCEL_EXPORT_REVISION)
+def _build_saw_formula_sheet(
+    workbook: Workbook,
+    frame: pd.DataFrame,
+    weights: Mapping[str, float],
+    preferences: Mapping[str, CriterionPreference],
+) -> dict[str, Any]:
     sheet, layout = _build_base_formula_sheet(
         workbook,
         method="SAW",
         frame=frame,
-        weights=normalized_weights,
+        weights=weights,
         preferences=preferences,
         subtitle=(
             "Edit the entered criterion weights and matrix inputs to explore the model. "
@@ -1030,6 +1016,42 @@ def build_saw_excel_workbook(
         lower_is_better=False,
     )
     _finalize_formula_sheet(sheet, layout, ranking.data_end)
+
+    return {
+        "results_data_start": results_data_start,
+        "results_data_end": results_data_end,
+        "ranking_data_start": ranking.data_start,
+        "ranking_data_end": ranking.data_end,
+        "ranking": ranking,
+        "layout": layout,
+        "rank_column_letter": "C",
+        "score_column_letter": "B",
+    }
+
+
+def build_saw_excel_workbook(
+    data: pd.DataFrame,
+    weights: Mapping[str, Any],
+    directions: Mapping[str, Any],
+) -> bytes:
+    """Return a complete formula-driven SAW workbook as XLSX bytes."""
+
+    frame = validate_crisp_matrix(data)
+    columns = [str(column) for column in frame.columns]
+    preferences = validate_method_capabilities("SAW", columns, directions)
+    validate_method_matrix("SAW", frame, directions)
+    normalized_weights = validate_weights(weights, columns, normalize=True)
+    results, steps = calculate_saw(
+        frame,
+        normalized_weights,
+        _legacy_directions(columns, preferences),
+        return_steps=True,
+    )
+
+    workbook = _new_workbook(method="SAW", revision=SAW_EXCEL_EXPORT_REVISION)
+    pos = _build_saw_formula_sheet(workbook, frame, normalized_weights, preferences)
+    ranking = pos["ranking"]
+    layout = pos["layout"]
 
     _build_summary_sheet(
         workbook,
@@ -1180,20 +1202,17 @@ def build_topsis_excel_workbook(
     frame = validate_crisp_matrix(data)
     columns = [str(column) for column in frame.columns]
     preferences = validate_method_capabilities("TOPSIS", columns, directions)
-    normalized_weights = validate_weights(weights, columns, normalize=True)
-    results, steps = calculate_topsis(
-        frame,
-        normalized_weights,
-        _legacy_directions(columns, preferences),
-        return_steps=True,
-    )
-
-    workbook = _new_workbook(method="TOPSIS", revision=TOPSIS_EXCEL_EXPORT_REVISION)
+def _build_topsis_formula_sheet(
+    workbook: Workbook,
+    frame: pd.DataFrame,
+    weights: Mapping[str, float],
+    preferences: Mapping[str, CriterionPreference],
+) -> dict[str, Any]:
     sheet, layout = _build_base_formula_sheet(
         workbook,
         method="TOPSIS",
         frame=frame,
-        weights=normalized_weights,
+        weights=weights,
         preferences=preferences,
         subtitle=(
             "Edit the entered criterion weights and matrix inputs to explore the model. "
@@ -1393,6 +1412,41 @@ def build_topsis_excel_workbook(
     )
     _finalize_formula_sheet(sheet, layout, ranking.data_end)
 
+    return {
+        "results_data_start": results_data_start,
+        "results_data_end": results_data_end,
+        "ranking_data_start": ranking.data_start,
+        "ranking_data_end": ranking.data_end,
+        "ranking": ranking,
+        "layout": layout,
+        "rank_column_letter": "E",
+        "score_column_letter": "D",
+    }
+
+
+def build_topsis_excel_workbook(
+    data: pd.DataFrame,
+    weights: Mapping[str, Any],
+    directions: Mapping[str, Any],
+) -> bytes:
+    """Return a complete formula-driven TOPSIS workbook as XLSX bytes."""
+
+    frame = validate_crisp_matrix(data)
+    columns = [str(column) for column in frame.columns]
+    preferences = validate_method_capabilities("TOPSIS", columns, directions)
+    normalized_weights = validate_weights(weights, columns, normalize=True)
+    results, steps = calculate_topsis(
+        frame,
+        normalized_weights,
+        _legacy_directions(columns, preferences),
+        return_steps=True,
+    )
+
+    workbook = _new_workbook(method="TOPSIS", revision=TOPSIS_EXCEL_EXPORT_REVISION)
+    pos = _build_topsis_formula_sheet(workbook, frame, normalized_weights, preferences)
+    ranking = pos["ranking"]
+    layout = pos["layout"]
+
     _build_summary_sheet(
         workbook,
         method="TOPSIS",
@@ -1569,35 +1623,18 @@ def build_topsis_excel_workbook(
     return _workbook_bytes(workbook)
 
 
-def build_vikor_excel_workbook(
-    data: pd.DataFrame,
-    weights: Mapping[str, Any],
-    directions: Mapping[str, Any],
-    *,
+def _build_vikor_formula_sheet(
+    workbook: Workbook,
+    frame: pd.DataFrame,
+    weights: Mapping[str, float],
+    preferences: Mapping[str, CriterionPreference],
     v_param: float = 0.5,
-) -> bytes:
-    """Return a complete formula-driven VIKOR workbook as XLSX bytes."""
-
-    if not 0 <= float(v_param) <= 1:
-        raise ValueError("v_param must be between 0 and 1.")
-    frame = validate_crisp_matrix(data)
-    columns = [str(column) for column in frame.columns]
-    preferences = validate_method_capabilities("VIKOR", columns, directions)
-    normalized_weights = validate_weights(weights, columns, normalize=True)
-    results, steps = calculate_vikor(
-        frame,
-        normalized_weights,
-        _legacy_directions(columns, preferences),
-        v_param=float(v_param),
-        return_steps=True,
-    )
-
-    workbook = _new_workbook(method="VIKOR", revision=VIKOR_EXCEL_EXPORT_REVISION)
+) -> dict[str, Any]:
     sheet, layout = _build_base_formula_sheet(
         workbook,
         method="VIKOR",
         frame=frame,
-        weights=normalized_weights,
+        weights=weights,
         preferences=preferences,
         subtitle=(
             "Edit v, the entered criterion weights, and matrix inputs to explore the "
@@ -1870,6 +1907,43 @@ def build_vikor_excel_workbook(
     )
     _finalize_formula_sheet(sheet, layout, ranking.data_end)
 
+    return {
+        "results_data_start": results_data_start,
+        "results_data_end": results_data_end,
+        "ranking_data_start": ranking.data_start,
+        "ranking_data_end": ranking.data_end,
+        "ranking": ranking,
+        "layout": layout,
+        "rank_column_letter": "G",
+        "score_column_letter": "F",
+    }
+
+
+def build_vikor_excel_workbook(
+    data: pd.DataFrame,
+    weights: Mapping[str, Any],
+    directions: Mapping[str, Any],
+    v_param: float = 0.5,
+) -> bytes:
+    """Return a complete formula-driven VIKOR workbook as XLSX bytes."""
+
+    frame = validate_crisp_matrix(data)
+    columns = [str(column) for column in frame.columns]
+    preferences = validate_method_capabilities("VIKOR", columns, directions)
+    normalized_weights = validate_weights(weights, columns, normalize=True)
+    results, steps = calculate_vikor(
+        frame,
+        normalized_weights,
+        _legacy_directions(columns, preferences),
+        v_param=float(v_param),
+        return_steps=True,
+    )
+
+    workbook = _new_workbook(method="VIKOR", revision=VIKOR_EXCEL_EXPORT_REVISION)
+    pos = _build_vikor_formula_sheet(workbook, frame, normalized_weights, preferences, v_param=float(v_param))
+    ranking = pos["ranking"]
+    layout = pos["layout"]
+
     _build_summary_sheet(
         workbook,
         method="VIKOR",
@@ -2082,11 +2156,14 @@ def build_vikor_excel_workbook(
 __all__ = [
     "SAW_EXCEL_EXPORT_FILENAME",
     "SAW_EXCEL_EXPORT_REVISION",
-    "TOPSIS_EXCEL_EXPORT_FILENAME",
     "TOPSIS_EXCEL_EXPORT_REVISION",
+    "TOPSIS_EXCEL_EXPORT_FILENAME",
     "VIKOR_EXCEL_EXPORT_FILENAME",
     "VIKOR_EXCEL_EXPORT_REVISION",
     "build_saw_excel_workbook",
     "build_topsis_excel_workbook",
     "build_vikor_excel_workbook",
+    "_build_saw_formula_sheet",
+    "_build_topsis_formula_sheet",
+    "_build_vikor_formula_sheet",
 ]

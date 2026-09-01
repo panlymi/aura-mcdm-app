@@ -553,6 +553,8 @@ def _build_formula_sheet(
     _autofit_column_widths(sheet)
 
     return {
+        "results_data_start": results_data_start,
+        "results_data_end": results_data_end,
         "ranking_data_start": ranking_data_start,
         "ranking_data_end": ranking_data_end,
     }

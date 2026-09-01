@@ -728,9 +728,13 @@ def _build_formula_sheet(
     _autofit_column_widths(sheet)
 
     return {
+        "results_data_start": distances_data_start,
+        "results_data_end": distances_data_end,
         "ranking_header_row": ranking_header_row,
         "ranking_data_start": ranking_data_start,
         "ranking_data_end": ranking_data_end,
+        "rank_column_letter": "E",
+        "score_column_letter": "D",
     }
 
 
