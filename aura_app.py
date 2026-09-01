@@ -70,6 +70,11 @@ from mcdm.weighting import (
     evaluate_weight_robustness,
     generate_deterministic_weight_scenarios,
 )
+from mcdm.weight_excel import (
+    WEIGHT_EXCEL_EXPORT_FILENAME,
+    WEIGHT_EXCEL_EXPORT_REVISION,
+    build_weight_calculation_excel_workbook,
+)
 from mcdm.criteria import CriterionType, METHOD_CAPABILITIES
 from mcdm.presentation import RESULT_PRESENTATION
 from mcdm.ranking import natural_sort_key
@@ -749,6 +754,31 @@ else:
                     weights = dict(zip(edited_weights_df["Criterion"], edited_weights_df["Weight"]))
                     st.session_state.ewm_steps = None
                     st.session_state.merec_steps = None
+
+                if matrix_to_calc is not None and weights:
+                    st.markdown("---")
+                    st.markdown("### 📥 Objective Weight Calculations Excel Workbook")
+                    st.caption(
+                        "Download an all-in-one Excel workbook containing live dynamic formulas for "
+                        "Entropy (EWM), MEREC, CRITIC, Standard Deviation, Equal Weights, and PCA Loadings."
+                    )
+                    try:
+                        weight_wb_bytes = build_weight_calculation_excel_workbook(
+                            matrix_to_calc,
+                            dict(weights),
+                            directions,
+                            baseline_name="Configured",
+                        )
+                        st.download_button(
+                            "📘 Download Step-by-Step Weight Calculations (Live Formulas)",
+                            data=weight_wb_bytes,
+                            file_name=WEIGHT_EXCEL_EXPORT_FILENAME,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True,
+                            key="download_tab2_weight_calculations_excel",
+                        )
+                    except Exception as exc:
+                        st.warning(f"Weight calculation workbook not available: {exc}")
                         
             else:
                 num_criteria = len(criteria)
@@ -3297,7 +3327,7 @@ else:
                         )
 
                         # Downloads
-                        col_dl1, col_dl2 = st.columns(2)
+                        col_dl1, col_dl2, col_dl3 = st.columns(3)
                         with col_dl1:
                             st.download_button(
                                 "📥 Download Table 4 (CSV)",
@@ -3313,7 +3343,7 @@ else:
                                     t4_df, rk_df, wt_df, method=mcdm_method, baseline_name=b_name
                                 )
                                 st.download_button(
-                                    "📗 Download Complete Weight Robustness Workbook (XLSX)",
+                                    "📗 Download Table 4 & Rankings (XLSX)",
                                     data=wb_bytes,
                                     file_name=f"{mcdm_method.lower()}_weight_robustness_workbook.xlsx",
                                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -3322,6 +3352,24 @@ else:
                                 )
                             except Exception as exc:
                                 st.error(f"Excel workbook export failed: {exc}")
+                        with col_dl3:
+                            try:
+                                calc_wb_bytes = build_weight_calculation_excel_workbook(
+                                    matrix_to_calc,
+                                    dict(weights) if weights else None,
+                                    directions,
+                                    baseline_name=b_name,
+                                )
+                                st.download_button(
+                                    "📘 Download Weight Formulas (XLSX)",
+                                    data=calc_wb_bytes,
+                                    file_name=WEIGHT_EXCEL_EXPORT_FILENAME,
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    use_container_width=True,
+                                    key="dl_weight_formulas_xlsx",
+                                )
+                            except Exception as exc:
+                                st.error(f"Weight formulas workbook export failed: {exc}")
 
                         st.markdown("---")
                         tab_r1, tab_r2, tab_r3 = st.tabs([

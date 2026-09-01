@@ -132,3 +132,44 @@ def test_build_weight_robustness_excel_workbook(sample_matrix, sample_directions
         "Criteria Weights by Scenario",
     ]
 
+
+def test_build_weight_calculation_excel_workbook(sample_matrix, sample_directions):
+    from io import BytesIO
+    from openpyxl import load_workbook
+    from mcdm.weight_excel import build_weight_calculation_excel_workbook
+
+    baseline = {"C1_Benefit": 0.4, "C2_Cost": 0.35, "C3_Benefit": 0.25}
+    xlsx_bytes = build_weight_calculation_excel_workbook(
+        sample_matrix, baseline, sample_directions, baseline_name="Official"
+    )
+    assert xlsx_bytes.startswith(b"PK")
+    wb = load_workbook(BytesIO(xlsx_bytes), data_only=False)
+    expected_sheets = [
+        "Weight Summary",
+        "Entropy (EWM)",
+        "MEREC",
+        "CRITIC",
+        "Standard Deviation",
+        "PCA Loadings",
+    ]
+    assert wb.sheetnames == expected_sheets
+
+    # Verify Summary Sheet formulas
+    ws_summary = wb["Weight Summary"]
+    # Row 6 has C1 formulas
+    assert "=" in str(ws_summary.cell(6, 4).value) # Equal weight formula
+    assert "=" in str(ws_summary.cell(6, 5).value) # Entropy link formula
+    assert "=" in str(ws_summary.cell(6, 6).value) # MEREC link formula
+    assert "=" in str(ws_summary.cell(6, 7).value) # CRITIC link formula
+    assert "=" in str(ws_summary.cell(6, 8).value) # SD link formula
+    assert "=" in str(ws_summary.cell(6, 9).value) # PCA link formula
+
+    # Verify Entropy sheet live formulas
+    ws_ewm = wb["Entropy (EWM)"]
+    assert any("SUM" in str(cell.value) for row in ws_ewm.iter_rows() for cell in row if str(cell.value).startswith("="))
+
+    # Verify CRITIC sheet CORREL formula
+    ws_critic = wb["CRITIC"]
+    assert any("CORREL" in str(cell.value) for row in ws_critic.iter_rows() for cell in row if str(cell.value).startswith("="))
+
+
