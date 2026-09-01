@@ -49,7 +49,14 @@ def calculate_method(
     if method_key == "TOPSIS":
         return calculate_topsis(matrix, weights, directions, return_steps=return_steps)
     if method_key == "SAW":
-        return calculate_saw(matrix, weights, directions, return_steps=return_steps)
+        saw_norm = parameters.get("saw_normalization", parameters.get("normalization", "ratio_to_max"))
+        return calculate_saw(
+            matrix,
+            weights,
+            directions,
+            normalization=saw_norm,
+            return_steps=return_steps,
+        )
     if method_key == "VIKOR":
         return calculate_vikor(matrix, weights, directions, parameters.get("v", 0.5), return_steps=return_steps)
     if method_key == "WASPAS":

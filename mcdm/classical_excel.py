@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from io import BytesIO
 from typing import Any, Mapping, Sequence
 
+import numpy as np
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.chart import BarChart, Reference
@@ -862,7 +863,30 @@ def _build_saw_formula_sheet(
     frame: pd.DataFrame,
     weights: Mapping[str, float],
     preferences: Mapping[str, CriterionPreference],
+    normalization: str = "ratio_to_max",
 ) -> dict[str, Any]:
+    norm_key = str(normalization).strip().lower()
+    if norm_key in ("ratio_to_max", "max", "canonical"):
+        norm_method = "ratio_to_max"
+        norm_title = "Ratio-to-Max (Canonical)"
+        extra_headers = ["Normalization Reference"]
+    elif norm_key in ("min_max", "minmax", "range", "0_1", "0-1"):
+        norm_method = "min_max"
+        norm_title = "Min–Max (Range / 0–1)"
+        extra_headers = ["Min (x_min)", "Max (x_max)"]
+    elif norm_key in ("sum", "proportion", "linear_sum", "sum_ratio"):
+        norm_method = "sum"
+        norm_title = "Sum / Linear Proportion"
+        extra_headers = ["Sum / Reciprocal Sum"]
+    elif norm_key in ("vector", "euclidean", "norm"):
+        norm_method = "vector"
+        norm_title = "Vector (Euclidean)"
+        extra_headers = ["Euclidean Norm (||x_j||)"]
+    else:
+        norm_method = "ratio_to_max"
+        norm_title = "Ratio-to-Max (Canonical)"
+        extra_headers = ["Normalization Reference"]
+
     sheet, layout = _build_base_formula_sheet(
         workbook,
         method="SAW",
@@ -870,11 +894,11 @@ def _build_saw_formula_sheet(
         weights=weights,
         preferences=preferences,
         subtitle=(
-            "Edit the entered criterion weights and matrix inputs to explore the model. "
+            f"Edit the entered criterion weights and matrix inputs to explore the model ({norm_title}). "
             "Weights are normalized automatically, and every ratio, weighted value, "
             "score, competition rank, KPI, and chart remains linked to the live inputs."
         ),
-        extra_setting_headers=["Normalization Reference"],
+        extra_setting_headers=extra_headers,
     )
 
     for row_offset, criterion in enumerate(layout.columns):
@@ -884,18 +908,47 @@ def _build_saw_formula_sheet(
             f"{column_letter}${layout.raw_data_start}:"
             f"{column_letter}${layout.raw_data_end}"
         )
-        aggregate = (
-            "MAX"
-            if layout.preferences[criterion].kind is CriterionType.BENEFIT
-            else "MIN"
-        )
-        sheet.cell(settings_row, 5, f"={aggregate}({range_ref})")
-        sheet.cell(settings_row, 5).fill = _FORMULA_FILL
-        sheet.cell(settings_row, 5).number_format = _CALC_NUMBER_FORMAT
-        sheet.cell(settings_row, 5).comment = Comment(
-            "Benefit criteria use the column maximum; cost criteria use the column minimum.",
-            "User",
-        )
+        is_benefit = layout.preferences[criterion].kind is CriterionType.BENEFIT
+
+        if norm_method == "ratio_to_max":
+            aggregate = "MAX" if is_benefit else "MIN"
+            sheet.cell(settings_row, 5, f"={aggregate}({range_ref})")
+            sheet.cell(settings_row, 5).fill = _FORMULA_FILL
+            sheet.cell(settings_row, 5).number_format = _CALC_NUMBER_FORMAT
+            sheet.cell(settings_row, 5).comment = Comment(
+                "Benefit criteria use the column maximum; cost criteria use the column minimum.",
+                "User",
+            )
+        elif norm_method == "min_max":
+            sheet.cell(settings_row, 5, f"=MIN({range_ref})")
+            sheet.cell(settings_row, 5).fill = _FORMULA_FILL
+            sheet.cell(settings_row, 5).number_format = _CALC_NUMBER_FORMAT
+            sheet.cell(settings_row, 6, f"=MAX({range_ref})")
+            sheet.cell(settings_row, 6).fill = _FORMULA_FILL
+            sheet.cell(settings_row, 6).number_format = _CALC_NUMBER_FORMAT
+            sheet.cell(settings_row, 5).comment = Comment(
+                "Min–Max uses column minimum and maximum to normalize to [0, 1].",
+                "User",
+            )
+        elif norm_method == "sum":
+            if is_benefit:
+                sheet.cell(settings_row, 5, f"=SUM({range_ref})")
+            else:
+                sheet.cell(settings_row, 5, f"=SUMPRODUCT(1/{range_ref})")
+            sheet.cell(settings_row, 5).fill = _FORMULA_FILL
+            sheet.cell(settings_row, 5).number_format = _CALC_NUMBER_FORMAT
+            sheet.cell(settings_row, 5).comment = Comment(
+                "Sum of column values for benefit; sum of reciprocals for cost.",
+                "User",
+            )
+        elif norm_method == "vector":
+            sheet.cell(settings_row, 5, f"=SQRT(SUMSQ({range_ref}))")
+            sheet.cell(settings_row, 5).fill = _FORMULA_FILL
+            sheet.cell(settings_row, 5).number_format = _CALC_NUMBER_FORMAT
+            sheet.cell(settings_row, 5).comment = Comment(
+                "Euclidean column norm sqrt(sum(x^2)).",
+                "User",
+            )
 
     (
         _norm_title,
@@ -906,7 +959,7 @@ def _build_saw_formula_sheet(
     ) = _write_formula_matrix_section(
         sheet,
         start_row=layout.raw_data_end + 3,
-        title="Step 2 — Ratio-Normalized Decision Matrix (r_ij)",
+        title=f"Step 2 — Normalized Decision Matrix (r_ij) — {norm_title}",
         layout=layout,
     )
     for row_offset in range(len(layout.alternatives)):
@@ -915,16 +968,52 @@ def _build_saw_formula_sheet(
         for column_index, criterion in enumerate(layout.columns, start=2):
             letter = get_column_letter(column_index)
             settings_row = layout.settings_data_start + column_index - 2
-            if layout.preferences[criterion].kind is CriterionType.BENEFIT:
-                formula = (
-                    f"=IF(ABS($E${settings_row})<={_formula_guard()},0,"
-                    f"{letter}{raw_row}/$E${settings_row})"
-                )
-            else:
-                formula = (
-                    f"=IF(ABS({letter}{raw_row})<={_formula_guard()},0,"
-                    f"$E${settings_row}/{letter}{raw_row})"
-                )
+            is_benefit = layout.preferences[criterion].kind is CriterionType.BENEFIT
+
+            if norm_method == "ratio_to_max":
+                if is_benefit:
+                    formula = (
+                        f"=IF(ABS($E${settings_row})<={_formula_guard()},0,"
+                        f"{letter}{raw_row}/$E${settings_row})"
+                    )
+                else:
+                    formula = (
+                        f"=IF(ABS({letter}{raw_row})<={_formula_guard()},0,"
+                        f"$E${settings_row}/{letter}{raw_row})"
+                    )
+            elif norm_method == "min_max":
+                if is_benefit:
+                    formula = (
+                        f"=IF(ABS($F${settings_row}-$E${settings_row})<={_formula_guard()},1,"
+                        f"({letter}{raw_row}-$E${settings_row})/($F${settings_row}-$E${settings_row}))"
+                    )
+                else:
+                    formula = (
+                        f"=IF(ABS($F${settings_row}-$E${settings_row})<={_formula_guard()},1,"
+                        f"($F${settings_row}-{letter}{raw_row})/($F${settings_row}-$E${settings_row}))"
+                    )
+            elif norm_method == "sum":
+                if is_benefit:
+                    formula = (
+                        f"=IF(ABS($E${settings_row})<={_formula_guard()},0,"
+                        f"{letter}{raw_row}/$E${settings_row})"
+                    )
+                else:
+                    formula = (
+                        f"=IF(OR(ABS({letter}{raw_row})<={_formula_guard()},ABS($E${settings_row})<={_formula_guard()}),0,"
+                        f"(1/{letter}{raw_row})/$E${settings_row})"
+                    )
+            elif norm_method == "vector":
+                if is_benefit:
+                    formula = (
+                        f"=IF(ABS($E${settings_row})<={_formula_guard()},0,"
+                        f"{letter}{raw_row}/$E${settings_row})"
+                    )
+                else:
+                    formula = (
+                        f"=IF(ABS($E${settings_row})<={_formula_guard()},0,"
+                        f"1-({letter}{raw_row}/$E${settings_row}))"
+                    )
             sheet.cell(row, column_index, formula)
 
     (
@@ -1033,6 +1122,7 @@ def build_saw_excel_workbook(
     data: pd.DataFrame,
     weights: Mapping[str, Any],
     directions: Mapping[str, Any],
+    normalization: str = "ratio_to_max",
 ) -> bytes:
     """Return a complete formula-driven SAW workbook as XLSX bytes."""
 
@@ -1045,11 +1135,56 @@ def build_saw_excel_workbook(
         frame,
         normalized_weights,
         _legacy_directions(columns, preferences),
+        normalization=normalization,
         return_steps=True,
     )
 
+    norm_key = str(normalization).strip().lower()
+    if norm_key in ("min_max", "minmax", "range", "0_1", "0-1"):
+        norm_title = "Min–Max (Range / 0–1)"
+        extra_headers = ["Min (x_min)", "Max (x_max)"]
+        reference_values = {
+            criterion: [float(frame[criterion].min()), float(frame[criterion].max())]
+            for criterion in columns
+        }
+    elif norm_key in ("sum", "proportion", "linear_sum", "sum_ratio"):
+        norm_title = "Sum / Linear Proportion"
+        extra_headers = ["Sum / Reciprocal Sum"]
+        reference_values = {
+            criterion: [
+                float(frame[criterion].sum())
+                if preferences[criterion].kind is CriterionType.BENEFIT
+                else float(sum(1.0 / v for v in frame[criterion] if abs(v) > 1e-9))
+            ]
+            for criterion in columns
+        }
+    elif norm_key in ("vector", "euclidean", "norm"):
+        norm_title = "Vector (Euclidean)"
+        extra_headers = ["Euclidean Norm (||x_j||)"]
+        reference_values = {
+            criterion: [float(np.sqrt((frame[criterion] ** 2).sum()))]
+            for criterion in columns
+        }
+    else:
+        norm_title = "Ratio-to-Max (Canonical)"
+        extra_headers = ["Normalization Reference"]
+        reference_values = {
+            criterion: [
+                float(frame[criterion].max())
+                if preferences[criterion].kind is CriterionType.BENEFIT
+                else float(frame[criterion].min())
+            ]
+            for criterion in columns
+        }
+
     workbook = _new_workbook(method="SAW", revision=SAW_EXCEL_EXPORT_REVISION)
-    pos = _build_saw_formula_sheet(workbook, frame, normalized_weights, preferences)
+    pos = _build_saw_formula_sheet(
+        workbook,
+        frame,
+        normalized_weights,
+        preferences,
+        normalization=normalization,
+    )
     ranking = pos["ranking"]
     layout = pos["layout"]
 
@@ -1058,7 +1193,7 @@ def build_saw_excel_workbook(
         method="SAW",
         title="SAW Decision Summary",
         subtitle=(
-            "A live summary of the Simple Additive Weighting result. Change weights "
+            f"A live summary of the Simple Additive Weighting result ({norm_title}). Change weights "
             "or matrix values on the SAW sheet to refresh every KPI, row, and chart."
         ),
         ranking=ranking,
@@ -1075,28 +1210,20 @@ def build_saw_excel_workbook(
         lower_is_better=False,
         notes=[
             "Higher V_i is preferred; a score is the sum of effective-weighted normalized ratings.",
-            "Benefit values use x_ij / max(x_j); cost values use min(x_j) / x_ij.",
+            f"Normalization scheme used: {norm_title}.",
             "Entered weights are normalized in the workbook, matching the app calculator.",
             "Tied scores share competition ranks, while the sort helper retains every tied row.",
             "The Verified Values sheet preserves the canonical calculation at download time.",
         ],
     )
 
-    reference_values = {
-        criterion: [
-            float(frame[criterion].max())
-            if preferences[criterion].kind is CriterionType.BENEFIT
-            else float(frame[criterion].min())
-        ]
-        for criterion in columns
-    }
     verified, next_row = _begin_verified_sheet(
         workbook,
         method="SAW",
         frame=frame,
         weights=normalized_weights,
         preferences=preferences,
-        extra_setting_headers=["Normalization Reference"],
+        extra_setting_headers=extra_headers,
         extra_setting_values=reference_values,
     )
     next_row = _write_indexed_dataframe(
@@ -1106,11 +1233,15 @@ def build_saw_excel_workbook(
         frame,
         matrix_preferences=preferences,
     )
+
+    step_2_key = next((k for k in steps if k.startswith("Step 2:")), "Step 2: Normalized Decision Matrix")
+    step_2_df = steps[step_2_key]
+
     next_row = _write_indexed_dataframe(
         verified,
         next_row,
-        "Step 2 — Ratio-Normalized Decision Matrix",
-        steps["Step 2: Normalized Decision Matrix"].reindex(frame.index),
+        f"Step 2 — Normalized Decision Matrix ({norm_title})",
+        step_2_df.reindex(frame.index),
         matrix_preferences=preferences,
     )
     next_row = _write_indexed_dataframe(
@@ -1138,7 +1269,7 @@ def build_saw_excel_workbook(
         method="SAW",
         title="SAW Formula Guide and Audit Trail",
         introduction=(
-            "Equations and audit notes for the Simple Additive Weighting implementation "
+            f"Equations and audit notes for the Simple Additive Weighting implementation ({norm_title}) "
             "used by this app (benefit and cost criteria)."
         ),
         sections=[
@@ -1153,14 +1284,11 @@ def build_saw_excel_workbook(
                 ],
             ),
             (
-                "Ratio normalization",
+                f"Normalization scheme: {norm_title}",
                 [
-                    ("For a benefit criterion: r_ij = x_ij / max_i(x_ij)", True),
-                    ("For a cost criterion: r_ij = min_i(x_ij) / x_ij", True),
-                    (
-                        "The app requires non-negative benefit columns with at least one positive value and strictly positive cost columns.",
-                        False,
-                    ),
+                    (f"Active normalization formula: {norm_title}", False),
+                    ("For a benefit criterion: r_ij = normalized rating according to chosen formula", True),
+                    ("For a cost criterion: r_ij = normalized rating according to chosen formula", True),
                 ],
             ),
             (

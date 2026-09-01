@@ -208,13 +208,16 @@ def build_saw_excel_download(
     matrix: pd.DataFrame,
     weights: dict,
     directions: dict,
+    normalization: str,
     export_revision: str,
 ) -> bytes:
     """Build a cached, formula-rich SAW workbook for the current calculation."""
 
     if export_revision != SAW_EXCEL_EXPORT_REVISION:
         raise ValueError("The requested SAW workbook revision is no longer supported.")
-    return build_saw_excel_workbook(matrix, weights, directions)
+    return build_saw_excel_workbook(
+        matrix, weights, directions, normalization=normalization
+    )
 
 
 @st.cache_data(show_spinner=False, max_entries=8)
@@ -339,6 +342,7 @@ gamma = 1.0
 kappa = 0.5
 v_param = 0.5
 lambda_value = 0.5
+saw_normalization = "ratio_to_max"
 
 # Method specific parameters in sidebar
 if mcdm_method == "AURA":
@@ -373,6 +377,31 @@ elif mcdm_method == "ARIE":
         min_value=0.0, max_value=1.0, value=0.5, step=0.05,
         help="Trades-off importance between being close to ideal (κ > 0.5) and far from worst (κ < 0.5)."
     )
+elif mcdm_method == "SAW":
+    st.sidebar.subheader("SAW Parameters")
+    saw_norm_choice = st.sidebar.selectbox(
+        "Normalization Method",
+        options=[
+            "Ratio-to-Max (Canonical)",
+            "Min–Max (Range / 0–1)",
+            "Sum / Linear Proportion",
+            "Vector (Euclidean)",
+        ],
+        index=0,
+        help=(
+            "• Ratio-to-Max: Classic Hwang & Yoon (Max for benefit, Min/x for cost)\n"
+            "• Min–Max: Scales to [0, 1] using (x - min)/(max - min)\n"
+            "• Sum: Proportional shares (x / sum(x))\n"
+            "• Vector: Euclidean normalization (x / sqrt(sum(x^2)))"
+        ),
+    )
+    norm_mapping = {
+        "Ratio-to-Max (Canonical)": "ratio_to_max",
+        "Min–Max (Range / 0–1)": "min_max",
+        "Sum / Linear Proportion": "sum",
+        "Vector (Euclidean)": "vector",
+    }
+    saw_normalization = norm_mapping[saw_norm_choice]
 elif mcdm_method == "VIKOR":
     st.sidebar.subheader("VIKOR Parameters")
     v_param = st.sidebar.slider(
@@ -791,6 +820,7 @@ else:
                 "kappa": kappa,
                 "v": v_param,
                 "lambda": lambda_value,
+                "saw_normalization": saw_normalization,
             }
             current_fingerprint = None
             if weights is not None and matrix_to_calc is not None and directions is not None:
@@ -1100,6 +1130,7 @@ else:
                             matrix_to_calc,
                             dict(weights),
                             dict(directions),
+                            str(parameters.get("saw_normalization", "ratio_to_max")),
                             SAW_EXCEL_EXPORT_REVISION,
                         )
                         st.download_button(

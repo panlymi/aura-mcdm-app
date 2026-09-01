@@ -506,7 +506,10 @@ def build_comparison_excel_workbook(
             pos = _build_moora_sheet(workbook, frame, normalized_weights, preferences)
             pos["rank_column_letter"] = "E"
         elif m_upper == "SAW":
-            pos = _build_saw_formula_sheet(workbook, frame, normalized_weights, preferences)
+            saw_norm = params.get("saw_normalization", "ratio_to_max")
+            pos = _build_saw_formula_sheet(
+                workbook, frame, normalized_weights, preferences, normalization=saw_norm
+            )
             pos["rank_column_letter"] = "C"
         elif m_upper == "TOPSIS":
             pos = _build_topsis_formula_sheet(workbook, frame, normalized_weights, preferences)

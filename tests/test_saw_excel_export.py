@@ -34,8 +34,8 @@ def _find_cell(sheet, value: str):
     raise AssertionError(f"Could not find {value!r} in {sheet.title}")
 
 
-def _build_workbook():
-    content = build_saw_excel_workbook(MATRIX, WEIGHTS, DIRECTIONS)
+def _build_workbook(normalization: str = "ratio_to_max"):
+    content = build_saw_excel_workbook(MATRIX, WEIGHTS, DIRECTIONS, normalization=normalization)
     return content, load_workbook(BytesIO(content), data_only=False)
 
 
@@ -57,7 +57,7 @@ def test_export_contains_complete_formula_model_and_metadata():
 
 
 def test_live_saw_formulas_cover_normalization_weighting_scoring_and_ties():
-    _, workbook = _build_workbook()
+    _, workbook = _build_workbook("ratio_to_max")
     sheet = workbook["SAW"]
 
     raw_title = _find_cell(sheet, "Step 1 — Original Decision Matrix")
@@ -65,7 +65,7 @@ def test_live_saw_formulas_cover_normalization_weighting_scoring_and_ties():
     assert sheet.cell(raw_weights_row, 2).value == "=$C$14"
     assert sheet["C14"].value == "=IF($B$9<=0,0,B14/$B$9)"
 
-    norm_title = _find_cell(sheet, "Step 2 — Ratio-Normalized Decision Matrix (r_ij)")
+    norm_title = _find_cell(sheet, "Step 2 — Normalized Decision Matrix (r_ij) — Ratio-to-Max (Canonical)")
     norm_formula = sheet.cell(norm_title.row + 3, 2).value
     assert norm_formula.startswith("=IF(ABS(")
     assert "/$E$14" in norm_formula
@@ -91,14 +91,46 @@ def test_live_saw_formulas_cover_normalization_weighting_scoring_and_ties():
         assert f"MATCH({offset + 1}," in sheet.cell(first_ranking_row + offset, 1).value
 
 
+def test_saw_export_with_min_max_normalization():
+    _, workbook = _build_workbook("min_max")
+    sheet = workbook["SAW"]
+
+    norm_title = _find_cell(sheet, "Step 2 — Normalized Decision Matrix (r_ij) — Min–Max (Range / 0–1)")
+    norm_formula = sheet.cell(norm_title.row + 3, 2).value
+    assert "$F$14-$E$14" in norm_formula
+    assert "-$E$14)/($F$14-$E$14)" in norm_formula
+
+    verified = workbook["Verified Values"]
+    canonical, steps = calculate_saw(MATRIX, WEIGHTS, DIRECTIONS, normalization="min_max", return_steps=True)
+    expected_normalized = steps["Step 2: Normalized Decision Matrix (Min–Max (Range / 0–1))"]
+    normalized_title = _find_cell(verified, "Step 2 — Normalized Decision Matrix (Min–Max (Range / 0–1))")
+    first_normalized_row = normalized_title.row + 2
+    for row_offset, (_alternative, values) in enumerate(expected_normalized.iterrows()):
+        row = first_normalized_row + row_offset
+        for column_index, value in enumerate(values, start=2):
+            assert np.isclose(verified.cell(row, column_index).value, value)
+
+
+def test_saw_export_with_sum_and_vector_normalization():
+    # Test Sum
+    _, wb_sum = _build_workbook("sum")
+    sheet_sum = wb_sum["SAW"]
+    _find_cell(sheet_sum, "Step 2 — Normalized Decision Matrix (r_ij) — Sum / Linear Proportion")
+
+    # Test Vector
+    _, wb_vec = _build_workbook("vector")
+    sheet_vec = wb_vec["SAW"]
+    _find_cell(sheet_vec, "Step 2 — Normalized Decision Matrix (r_ij) — Vector (Euclidean)")
+
+
 def test_verified_values_match_canonical_saw_calculator():
     _, workbook = _build_workbook()
     sheet = workbook["Verified Values"]
     canonical, steps = calculate_saw(MATRIX, WEIGHTS, DIRECTIONS, return_steps=True)
 
-    normalized_title = _find_cell(sheet, "Step 2 — Ratio-Normalized Decision Matrix")
+    normalized_title = _find_cell(sheet, "Step 2 — Normalized Decision Matrix (Ratio-to-Max (Canonical))")
     first_normalized_row = normalized_title.row + 2
-    expected_normalized = steps["Step 2: Normalized Decision Matrix"]
+    expected_normalized = steps["Step 2: Normalized Decision Matrix (Ratio-to-Max (Canonical))"]
     for row_offset, (_alternative, values) in enumerate(expected_normalized.iterrows()):
         row = first_normalized_row + row_offset
         for column_index, value in enumerate(values, start=2):

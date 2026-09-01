@@ -138,3 +138,30 @@ def test_golden_benchmark(method):
     np.testing.assert_allclose(
         result[metadata.score_column].to_numpy(), expected_scores, rtol=1e-9, atol=1e-9
     )
+
+
+@pytest.mark.parametrize("normalization", ["ratio_to_max", "min_max", "sum", "vector"])
+def test_saw_normalization_variations(normalization):
+    matrix = pd.DataFrame(
+        {
+            "Benefit": [9.0, 7.0, 3.0],
+            "Cost": [2.0, 4.0, 8.0],
+            "Benefit2": [6.0, 8.0, 5.0],
+        },
+        index=["A1", "A2", "A3"],
+    )
+    weights = {"Benefit": 0.4, "Cost": 0.35, "Benefit2": 0.25}
+    directions = {"Benefit": "maximize", "Cost": "minimize", "Benefit2": "maximize"}
+    
+    result = calculate_method(
+        "SAW",
+        matrix,
+        weights,
+        directions,
+        parameters={"saw_normalization": normalization},
+    )
+    assert "V_i (SAW Score)" in result.columns
+    assert "Rank" in result.columns
+    assert len(result) == 3
+    # In all standard normalizations for this problem, A1 or A2 is at top
+    assert result.loc["A1", "Rank"] in (1, 2)
