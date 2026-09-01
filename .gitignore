@@ -34,3 +34,5 @@ report.json
 artifacts/generated/
 outputs/
 .artifact_runtime/
+.codex_tmp/
+xlsx_work/

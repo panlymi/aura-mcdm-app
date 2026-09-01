@@ -62,6 +62,14 @@ from mcdm.agreement import (
     calculate_pairwise_spearman_matrix,
     get_default_jaccard_cutoffs,
 )
+from mcdm.weighting import (
+    build_weight_robustness_excel_workbook,
+    calculate_critic_weights,
+    calculate_pca_weights,
+    calculate_sd_weights,
+    evaluate_weight_robustness,
+    generate_deterministic_weight_scenarios,
+)
 from mcdm.criteria import CriterionType, METHOD_CAPABILITIES
 from mcdm.presentation import RESULT_PRESENTATION
 from mcdm.ranking import natural_sort_key
@@ -444,6 +452,8 @@ for state_key, default_value in {
     "sensitivity_fingerprint": None,
     "comparison_result": None,
     "comparison_fingerprint": None,
+    "weight_robustness_result": None,
+    "weight_robustness_fingerprint": None,
     "monte_carlo_result": None,
     "monte_carlo_fingerprint": None,
     "prepare_mc_raw_downloads": False,
@@ -2694,460 +2704,700 @@ else:
                     "feature."
                 )
             else:
-                st.subheader("⚖️ Comparative Analysis")
-                st.markdown(
-                    "Select multiple MCDM methods below to compare their final "
-                    "rankings side-by-side using the current matrix and criteria weights."
-                )
+                st.subheader("⚖️ Comparative & Robustness Analysis")
+                tab_comp_methods, tab_comp_weights = st.tabs([
+                    "📊 Multi-Method Comparison (Table 3)",
+                    f"⚖️ {mcdm_method} Weight Robustness (Table 4)",
+                ])
 
-                available_compare_methods = [
-                    "AURA",
-                    "ARAS",
-                    "SYAI",
-                    "ARIE",
-                    "MOORA",
-                    "TOPSIS",
-                    "SAW",
-                    "VIKOR",
-                    "WASPAS",
-                ]
-                col_m1, col_m2 = st.columns([3, 2])
-                with col_m1:
-                    selected_compare_methods = st.multiselect(
-                        "Select Methods to Compare",
-                        available_compare_methods,
-                        default=available_compare_methods,
-                        key="comparison_methods",
+                with tab_comp_methods:
+                    st.markdown(
+                        "Select multiple MCDM methods below to compare their final "
+                        "rankings side-by-side using the current matrix and criteria weights."
                     )
-                with col_m2:
-                    benchmark_options = (
-                        selected_compare_methods
-                        if selected_compare_methods
-                        else available_compare_methods
+
+                    available_compare_methods = [
+                        "AURA",
+                        "ARAS",
+                        "SYAI",
+                        "ARIE",
+                        "MOORA",
+                        "TOPSIS",
+                        "SAW",
+                        "VIKOR",
+                        "WASPAS",
+                    ]
+                    col_m1, col_m2 = st.columns([3, 2])
+                    with col_m1:
+                        selected_compare_methods = st.multiselect(
+                            "Select Methods to Compare",
+                            available_compare_methods,
+                            default=available_compare_methods,
+                            key="comparison_methods",
+                        )
+                    with col_m2:
+                        benchmark_options = (
+                            selected_compare_methods
+                            if selected_compare_methods
+                            else available_compare_methods
+                        )
+                        benchmark_method = st.selectbox(
+                            "Benchmark Method for Agreement (Table 3)",
+                            benchmark_options,
+                            index=0,
+                            key="comparison_benchmark_method",
+                            help=(
+                                "Reference baseline method to evaluate rank agreement "
+                                "(Spearman ρ, Kendall τ-b, MARD, Top-k Jaccard)."
+                            ),
+                        )
+                    current_comparison_fingerprint = analysis_fingerprint(
+                        baseline_fingerprint=st.session_state.calculation_fingerprint,
+                        analysis_name="method_comparison",
+                        controls={
+                            "methods": selected_compare_methods,
+                            "benchmark": benchmark_method,
+                        },
                     )
-                    benchmark_method = st.selectbox(
-                        "Benchmark Method for Agreement (Table 3)",
-                        benchmark_options,
-                        index=0,
-                        key="comparison_benchmark_method",
-                        help=(
-                            "Reference baseline method to evaluate rank agreement "
-                            "(Spearman ρ, Kendall τ-b, MARD, Top-k Jaccard)."
-                        ),
+
+                    run_comparison = st.button(
+                        "Run Method Comparison",
+                        type="primary",
+                        use_container_width=True,
+                        disabled=not selected_compare_methods,
+                        key="run_method_comparison",
                     )
-                current_comparison_fingerprint = analysis_fingerprint(
-                    baseline_fingerprint=st.session_state.calculation_fingerprint,
-                    analysis_name="method_comparison",
-                    controls={
-                        "methods": selected_compare_methods,
-                        "benchmark": benchmark_method,
-                    },
-                )
-
-                run_comparison = st.button(
-                    "Run Method Comparison",
-                    type="primary",
-                    use_container_width=True,
-                    disabled=not selected_compare_methods,
-                    key="run_method_comparison",
-                )
-                if run_comparison:
-                    st.session_state.comparison_result = None
-                    st.session_state.comparison_fingerprint = None
-                    try:
-                        comp_df, excluded_methods = run_method_comparison(
-                            selected_compare_methods,
-                            matrix_to_calc,
-                            weights,
-                            directions,
-                            parameters=parameters,
-                        )
-                    except Exception as exc:
-                        st.error(
-                            f"Comparative analysis could not run: {exc}"
-                        )
-                    else:
-                        st.session_state.comparison_result = {
-                            "rankings": comp_df,
-                            "excluded": excluded_methods,
-                        }
-                        st.session_state.comparison_fingerprint = (
-                            current_comparison_fingerprint
-                        )
-
-                comparison_output = st.session_state.comparison_result
-                if comparison_output is None:
-                    st.info(
-                        "Choose the methods above, then click Run Method Comparison."
-                    )
-                elif (
-                    st.session_state.comparison_fingerprint
-                    != current_comparison_fingerprint
-                ):
-                    st.warning(
-                        "Comparison settings changed—rerun the comparison to "
-                        "refresh the results."
-                    )
-                else:
-                    comp_df = comparison_output["rankings"]
-                    excluded_methods = comparison_output["excluded"]
-                    for excluded_method, reason in excluded_methods.items():
-                        st.info(f"**{excluded_method} excluded:** {reason}")
-
-                    active_compare_methods = list(comp_df.columns)
-                    if comp_df.empty:
-                        st.info(
-                            "None of the selected methods supports the current "
-                            "criterion configuration."
-                        )
-                    else:
-                        st.markdown("### 🏆 Method Ranking Comparison")
-                        st.dataframe(
-                            comp_df,
-                            use_container_width=True,
-                            column_config={
-                                method: st.column_config.NumberColumn(
-                                    method,
-                                    format="%d",
-                                    help=f"Rank according to {method}",
-                                )
-                                for method in comp_df.columns
-                            },
-                        )
-
-                        # --- TABLE 3 AGREEMENT TABLE ---
-                        bench = (
-                            benchmark_method
-                            if benchmark_method in active_compare_methods
-                            else active_compare_methods[0]
-                        )
-                        st.markdown(
-                            f"### 📋 Agreement of MCDM Methods with {bench} (Table 3)"
-                        )
-                        agreement_df = calculate_agreement_table(
-                            comp_df,
-                            benchmark_method=bench,
-                        )
-                        if not agreement_df.empty:
-                            st.dataframe(
-                                agreement_df,
-                                use_container_width=True,
-                                column_config={
-                                    "Spearman ρ": st.column_config.NumberColumn(
-                                        "Spearman ρ",
-                                        format="%.4f",
-                                        help="Spearman rank correlation with benchmark",
-                                    ),
-                                    "Kendall τ-b": st.column_config.NumberColumn(
-                                        "Kendall τ-b",
-                                        format="%.4f",
-                                        help="Kendall tau-b correlation with benchmark",
-                                    ),
-                                    "MARD": st.column_config.NumberColumn(
-                                        "MARD",
-                                        format="%.2f",
-                                        help="Mean Absolute Rank Difference from benchmark",
-                                    ),
-                                    **{
-                                        col: st.column_config.NumberColumn(
-                                            col,
-                                            format="%.3f",
-                                            help="Jaccard similarity of top alternatives with benchmark",
-                                        )
-                                        for col in agreement_df.columns
-                                        if "Jaccard" in col
-                                    },
-                                },
-                            )
-                            k1_cut, k2_cut = get_default_jaccard_cutoffs(
-                                len(comp_df)
-                            )
-                            st.caption(
-                                f"**Note.** MARD = mean absolute rank difference. "
-                                f"Benchmark = **{bench}**. "
-                                f"Top-{k1_cut} and Top-{k2_cut} Jaccard coefficients "
-                                f"measure subset overlap among top-ranked alternatives."
-                            )
-
-                        st.markdown("### 🥇 Top Performing Alternatives")
-                        winning_alts = comp_df[comp_df == 1].count(axis=1)
-                        winning_alts = winning_alts[
-                            winning_alts > 0
-                        ].sort_values(ascending=False)
-                        if not winning_alts.empty:
-                            winner_df = winning_alts.reset_index()
-                            winner_df.columns = [
-                                "Alternative",
-                                "Times Ranked #1",
-                            ]
-                            winner_chart = (
-                                alt.Chart(winner_df)
-                                .mark_bar(color="#FFD700")
-                                .encode(
-                                    x=alt.X(
-                                        "Alternative:N", sort="-y"
-                                    ),
-                                    y=alt.Y(
-                                        "Times Ranked #1:Q",
-                                        title="Times Ranked #1",
-                                    ),
-                                    tooltip=[
-                                        "Alternative",
-                                        "Times Ranked #1",
-                                    ],
-                                )
-                                .properties(
-                                    height=250,
-                                    title=(
-                                        "Number of #1 Ranks per Alternative"
-                                    ),
-                                )
-                            )
-                            st.altair_chart(
-                                winner_chart, use_container_width=True
-                            )
-                        else:
-                            st.info(
-                                "No alternative attained rank #1 across the "
-                                "selected methods."
-                            )
-
-                        comp_df_reset = comp_df.reset_index()
-                        if comp_df_reset.columns[0] != "Alternative":
-                            comp_df_reset.rename(
-                                columns={
-                                    comp_df_reset.columns[0]: "Alternative"
-                                },
-                                inplace=True,
-                            )
-                        comp_melted = comp_df_reset.melt(
-                            id_vars="Alternative",
-                            var_name="Method",
-                            value_name="Rank",
-                        )
-                        unique_alts_comp = sorted(
-                            comp_melted["Alternative"].unique(),
-                            key=natural_sort_key,
-                        )
-                        comparison_chart = (
-                            alt.Chart(comp_melted)
-                            .mark_line(
-                                point=alt.OverlayMarkDef(
-                                    filled=False,
-                                    fill="white",
-                                    size=100,
-                                )
-                            )
-                            .encode(
-                                x=alt.X(
-                                    "Method:N",
-                                    title="MCDM Method",
-                                    sort=active_compare_methods,
-                                ),
-                                y=alt.Y(
-                                    "Rank:O",
-                                    title="Rank",
-                                    sort="descending",
-                                ),
-                                color=alt.Color(
-                                    "Alternative:N",
-                                    sort=unique_alts_comp,
-                                    legend=alt.Legend(
-                                        title="Alternatives",
-                                        orient="right",
-                                    ),
-                                ),
-                                tooltip=[
-                                    "Alternative",
-                                    "Method",
-                                    "Rank",
-                                ],
-                            )
-                            .properties(
-                                height=400,
-                                title=(
-                                    "Alternative Ranking Shifts Across Methods"
-                                ),
-                            )
-                            .interactive()
-                        )
-                        st.altair_chart(
-                            comparison_chart, use_container_width=True
-                        )
-
-                        if len(active_compare_methods) > 1:
-                            st.markdown("---")
-                            st.markdown(
-                                "### 🔗 Mathematical Rank Correlation "
-                                "(Spearman's $\\rho$ & Kendall's $\\tau$-b)"
-                            )
-                            st.markdown(
-                                "Higher values (closer to 1.0) indicate that "
-                                "methods produce consistent relative ranking sequences."
-                            )
-
-                            corr_tab1, corr_tab2 = st.tabs(
-                                ["Spearman's ρ", "Kendall's τ-b"]
-                            )
-                            with corr_tab1:
-                                spearman_matrix = calculate_pairwise_spearman_matrix(
-                                    comp_df
-                                )
-                                corr_reset = (
-                                    spearman_matrix.reset_index().melt("index")
-                                )
-                                corr_reset.columns = [
-                                    "Method 1",
-                                    "Method 2",
-                                    "Correlation",
-                                ]
-                                base = alt.Chart(corr_reset).encode(
-                                    x=alt.X(
-                                        "Method 1:O",
-                                        sort=active_compare_methods,
-                                    ),
-                                    y=alt.Y(
-                                        "Method 2:O",
-                                        sort=active_compare_methods,
-                                    ),
-                                )
-                                heatmap = base.mark_rect().encode(
-                                    color=alt.Color(
-                                        "Correlation:Q",
-                                        scale=alt.Scale(
-                                            domain=[-1, 1],
-                                            scheme="redblue",
-                                        ),
-                                        title="Spearman's ρ",
-                                    ),
-                                    tooltip=[
-                                        "Method 1",
-                                        "Method 2",
-                                        alt.Tooltip(
-                                            "Correlation", format=".3f"
-                                        ),
-                                    ],
-                                )
-                                text_layer = base.mark_text(
-                                    baseline="middle"
-                                ).encode(
-                                    text=alt.Text(
-                                        "Correlation:Q", format=".2f"
-                                    ),
-                                    color=alt.condition(
-                                        alt.datum.Correlation > 0.5,
-                                        alt.value("white"),
-                                        alt.value("black"),
-                                    ),
-                                )
-                                corr_chart = (
-                                    heatmap + text_layer
-                                ).properties(
-                                    height=380,
-                                    title=(
-                                        "Method vs Method Spearman's Rank "
-                                        "Correlation"
-                                    ),
-                                )
-                                st.altair_chart(
-                                    corr_chart, use_container_width=True
-                                )
-
-                            with corr_tab2:
-                                kendall_matrix = calculate_pairwise_kendall_matrix(
-                                    comp_df
-                                )
-                                kendall_reset = (
-                                    kendall_matrix.reset_index().melt("index")
-                                )
-                                kendall_reset.columns = [
-                                    "Method 1",
-                                    "Method 2",
-                                    "Correlation",
-                                ]
-                                base_k = alt.Chart(kendall_reset).encode(
-                                    x=alt.X(
-                                        "Method 1:O",
-                                        sort=active_compare_methods,
-                                    ),
-                                    y=alt.Y(
-                                        "Method 2:O",
-                                        sort=active_compare_methods,
-                                    ),
-                                )
-                                heatmap_k = base_k.mark_rect().encode(
-                                    color=alt.Color(
-                                        "Correlation:Q",
-                                        scale=alt.Scale(
-                                            domain=[-1, 1],
-                                            scheme="redblue",
-                                        ),
-                                        title="Kendall's τ-b",
-                                    ),
-                                    tooltip=[
-                                        "Method 1",
-                                        "Method 2",
-                                        alt.Tooltip(
-                                            "Correlation", format=".3f"
-                                        ),
-                                    ],
-                                )
-                                text_layer_k = base_k.mark_text(
-                                    baseline="middle"
-                                ).encode(
-                                    text=alt.Text(
-                                        "Correlation:Q", format=".2f"
-                                    ),
-                                    color=alt.condition(
-                                        alt.datum.Correlation > 0.5,
-                                        alt.value("white"),
-                                        alt.value("black"),
-                                    ),
-                                )
-                                corr_chart_k = (
-                                    heatmap_k + text_layer_k
-                                ).properties(
-                                    height=380,
-                                    title=(
-                                        "Method vs Method Kendall's Tau-b "
-                                        "Correlation"
-                                    ),
-                                )
-                                st.altair_chart(
-                                    corr_chart_k, use_container_width=True
-                                )
-
-                        # --- MULTI-METHOD COMPARISON EXCEL DOWNLOAD ---
-                        st.markdown("---")
-                        st.markdown("### 📥 Complete Multi-Method Comparison Excel Workbook")
-                        st.caption(
-                            "Download an all-in-one Excel workbook containing the Comparison & Agreement "
-                            "summary tab (Table 3 agreement table, side-by-side rankings, pairwise correlation "
-                            "matrices) followed by dedicated full formula calculation sheets for every active selected method."
-                        )
+                    if run_comparison:
+                        st.session_state.comparison_result = None
+                        st.session_state.comparison_fingerprint = None
                         try:
-                            comparison_workbook_bytes = build_comparison_excel_download(
+                            comp_df, excluded_methods = run_method_comparison(
+                                selected_compare_methods,
                                 matrix_to_calc,
-                                dict(weights),
-                                dict(directions),
-                                tuple(active_compare_methods),
-                                bench,
-                                dict(parameters),
-                                COMPARISON_EXCEL_EXPORT_REVISION,
-                            )
-                            st.download_button(
-                                "📊 Download Multi-Method Comparison Excel Workbook",
-                                data=comparison_workbook_bytes,
-                                file_name=COMPARISON_EXCEL_EXPORT_FILENAME,
-                                mime=(
-                                    "application/vnd.openxmlformats-officedocument."
-                                    "spreadsheetml.sheet"
-                                ),
-                                use_container_width=True,
-                                key="download_multi_method_comparison_excel",
+                                weights,
+                                directions,
+                                parameters=parameters,
                             )
                         except Exception as exc:
                             st.error(
-                                f"The multi-method comparison Excel workbook could not be generated: {exc}"
+                                f"Comparative analysis could not run: {exc}"
                             )
+                        else:
+                            st.session_state.comparison_result = {
+                                "rankings": comp_df,
+                                "excluded": excluded_methods,
+                            }
+                            st.session_state.comparison_fingerprint = (
+                                current_comparison_fingerprint
+                            )
+
+                    comparison_output = st.session_state.comparison_result
+                    if comparison_output is None:
+                        st.info(
+                            "Choose the methods above, then click Run Method Comparison."
+                        )
+                    elif (
+                        st.session_state.comparison_fingerprint
+                        != current_comparison_fingerprint
+                    ):
+                        st.warning(
+                            "Comparison settings changed—rerun the comparison to "
+                            "refresh the results."
+                        )
+                    else:
+                        comp_df = comparison_output["rankings"]
+                        excluded_methods = comparison_output["excluded"]
+                        for excluded_method, reason in excluded_methods.items():
+                            st.info(f"**{excluded_method} excluded:** {reason}")
+
+                        active_compare_methods = list(comp_df.columns)
+                        if comp_df.empty:
+                            st.info(
+                                "None of the selected methods supports the current "
+                                "criterion configuration."
+                            )
+                        else:
+                            st.markdown("### 🏆 Method Ranking Comparison")
+                            st.dataframe(
+                                comp_df,
+                                use_container_width=True,
+                                column_config={
+                                    method: st.column_config.NumberColumn(
+                                        method,
+                                        format="%d",
+                                        help=f"Rank according to {method}",
+                                    )
+                                    for method in comp_df.columns
+                                },
+                            )
+
+                            # --- TABLE 3 AGREEMENT TABLE ---
+                            bench = (
+                                benchmark_method
+                                if benchmark_method in active_compare_methods
+                                else active_compare_methods[0]
+                            )
+                            st.markdown(
+                                f"### 📋 Agreement of MCDM Methods with {bench} (Table 3)"
+                            )
+                            agreement_df = calculate_agreement_table(
+                                comp_df,
+                                benchmark_method=bench,
+                            )
+                            if not agreement_df.empty:
+                                st.dataframe(
+                                    agreement_df,
+                                    use_container_width=True,
+                                    column_config={
+                                        "Spearman ρ": st.column_config.NumberColumn(
+                                            "Spearman ρ",
+                                            format="%.4f",
+                                            help="Spearman rank correlation with benchmark",
+                                        ),
+                                        "Kendall τ-b": st.column_config.NumberColumn(
+                                            "Kendall τ-b",
+                                            format="%.4f",
+                                            help="Kendall tau-b correlation with benchmark",
+                                        ),
+                                        "MARD": st.column_config.NumberColumn(
+                                            "MARD",
+                                            format="%.2f",
+                                            help="Mean Absolute Rank Difference from benchmark",
+                                        ),
+                                        **{
+                                            col: st.column_config.NumberColumn(
+                                                col,
+                                                format="%.3f",
+                                                help="Jaccard similarity of top alternatives with benchmark",
+                                            )
+                                            for col in agreement_df.columns
+                                            if "Jaccard" in col
+                                        },
+                                    },
+                                )
+                                k1_cut, k2_cut = get_default_jaccard_cutoffs(
+                                    len(comp_df)
+                                )
+                                st.caption(
+                                    f"**Note.** MARD = mean absolute rank difference. "
+                                    f"Benchmark = **{bench}**. "
+                                    f"Top-{k1_cut} and Top-{k2_cut} Jaccard coefficients "
+                                    f"measure subset overlap among top-ranked alternatives."
+                                )
+
+                            st.markdown("### 🥇 Top Performing Alternatives")
+                            winning_alts = comp_df[comp_df == 1].count(axis=1)
+                            winning_alts = winning_alts[
+                                winning_alts > 0
+                            ].sort_values(ascending=False)
+                            if not winning_alts.empty:
+                                winner_df = winning_alts.reset_index()
+                                winner_df.columns = [
+                                    "Alternative",
+                                    "Times Ranked #1",
+                                ]
+                                winner_chart = (
+                                    alt.Chart(winner_df)
+                                    .mark_bar(color="#FFD700")
+                                    .encode(
+                                        x=alt.X(
+                                            "Alternative:N", sort="-y"
+                                        ),
+                                        y=alt.Y(
+                                            "Times Ranked #1:Q",
+                                            title="Times Ranked #1",
+                                        ),
+                                        tooltip=[
+                                            "Alternative",
+                                            "Times Ranked #1",
+                                        ],
+                                    )
+                                    .properties(
+                                        height=250,
+                                        title=(
+                                            "Number of #1 Ranks per Alternative"
+                                        ),
+                                    )
+                                )
+                                st.altair_chart(
+                                    winner_chart, use_container_width=True
+                                )
+                            else:
+                                st.info(
+                                    "No alternative attained rank #1 across the "
+                                    "selected methods."
+                                )
+
+                            comp_df_reset = comp_df.reset_index()
+                            if comp_df_reset.columns[0] != "Alternative":
+                                comp_df_reset.rename(
+                                    columns={
+                                        comp_df_reset.columns[0]: "Alternative"
+                                    },
+                                    inplace=True,
+                                )
+                            comp_melted = comp_df_reset.melt(
+                                id_vars="Alternative",
+                                var_name="Method",
+                                value_name="Rank",
+                            )
+                            unique_alts_comp = sorted(
+                                comp_melted["Alternative"].unique(),
+                                key=natural_sort_key,
+                            )
+                            comparison_chart = (
+                                alt.Chart(comp_melted)
+                                .mark_line(
+                                    point=alt.OverlayMarkDef(
+                                        filled=False,
+                                        fill="white",
+                                        size=100,
+                                    )
+                                )
+                                .encode(
+                                    x=alt.X(
+                                        "Method:N",
+                                        title="MCDM Method",
+                                        sort=active_compare_methods,
+                                    ),
+                                    y=alt.Y(
+                                        "Rank:O",
+                                        title="Rank",
+                                        sort="descending",
+                                    ),
+                                    color=alt.Color(
+                                        "Alternative:N",
+                                        sort=unique_alts_comp,
+                                        legend=alt.Legend(
+                                            title="Alternatives",
+                                            orient="right",
+                                        ),
+                                    ),
+                                    tooltip=[
+                                        "Alternative",
+                                        "Method",
+                                        "Rank",
+                                    ],
+                                )
+                                .properties(
+                                    height=400,
+                                    title=(
+                                        "Alternative Ranking Shifts Across Methods"
+                                    ),
+                                )
+                                .interactive()
+                            )
+                            st.altair_chart(
+                                comparison_chart, use_container_width=True
+                            )
+
+                            if len(active_compare_methods) > 1:
+                                st.markdown("---")
+                                st.markdown(
+                                    "### 🔗 Mathematical Rank Correlation "
+                                    "(Spearman's $\\rho$ & Kendall's $\\tau$-b)"
+                                )
+                                st.markdown(
+                                    "Higher values (closer to 1.0) indicate that "
+                                    "methods produce consistent relative ranking sequences."
+                                )
+
+                                corr_tab1, corr_tab2 = st.tabs(
+                                    ["Spearman's ρ", "Kendall's τ-b"]
+                                )
+                                with corr_tab1:
+                                    spearman_matrix = calculate_pairwise_spearman_matrix(
+                                        comp_df
+                                    )
+                                    corr_reset = (
+                                        spearman_matrix.reset_index().melt("index")
+                                    )
+                                    corr_reset.columns = [
+                                        "Method 1",
+                                        "Method 2",
+                                        "Correlation",
+                                    ]
+                                    base = alt.Chart(corr_reset).encode(
+                                        x=alt.X(
+                                            "Method 1:O",
+                                            sort=active_compare_methods,
+                                        ),
+                                        y=alt.Y(
+                                            "Method 2:O",
+                                            sort=active_compare_methods,
+                                        ),
+                                    )
+                                    heatmap = base.mark_rect().encode(
+                                        color=alt.Color(
+                                            "Correlation:Q",
+                                            scale=alt.Scale(
+                                                domain=[-1, 1],
+                                                scheme="redblue",
+                                            ),
+                                            title="Spearman's ρ",
+                                        ),
+                                        tooltip=[
+                                            "Method 1",
+                                            "Method 2",
+                                            alt.Tooltip(
+                                                "Correlation", format=".3f"
+                                            ),
+                                        ],
+                                    )
+                                    text_layer = base.mark_text(
+                                        baseline="middle"
+                                    ).encode(
+                                        text=alt.Text(
+                                            "Correlation:Q", format=".2f"
+                                        ),
+                                        color=alt.condition(
+                                            alt.datum.Correlation > 0.5,
+                                            alt.value("white"),
+                                            alt.value("black"),
+                                        ),
+                                    )
+                                    corr_chart = (
+                                        heatmap + text_layer
+                                    ).properties(
+                                        height=380,
+                                        title=(
+                                            "Method vs Method Spearman's Rank "
+                                            "Correlation"
+                                        ),
+                                    )
+                                    st.altair_chart(
+                                        corr_chart, use_container_width=True
+                                    )
+
+                                with corr_tab2:
+                                    kendall_matrix = calculate_pairwise_kendall_matrix(
+                                        comp_df
+                                    )
+                                    kendall_reset = (
+                                        kendall_matrix.reset_index().melt("index")
+                                    )
+                                    kendall_reset.columns = [
+                                        "Method 1",
+                                        "Method 2",
+                                        "Correlation",
+                                    ]
+                                    base_k = alt.Chart(kendall_reset).encode(
+                                        x=alt.X(
+                                            "Method 1:O",
+                                            sort=active_compare_methods,
+                                        ),
+                                        y=alt.Y(
+                                            "Method 2:O",
+                                            sort=active_compare_methods,
+                                        ),
+                                    )
+                                    heatmap_k = base_k.mark_rect().encode(
+                                        color=alt.Color(
+                                            "Correlation:Q",
+                                            scale=alt.Scale(
+                                                domain=[-1, 1],
+                                                scheme="redblue",
+                                            ),
+                                            title="Kendall's τ-b",
+                                        ),
+                                        tooltip=[
+                                            "Method 1",
+                                            "Method 2",
+                                            alt.Tooltip(
+                                                "Correlation", format=".3f"
+                                            ),
+                                        ],
+                                    )
+                                    text_layer_k = base_k.mark_text(
+                                        baseline="middle"
+                                    ).encode(
+                                        text=alt.Text(
+                                            "Correlation:Q", format=".2f"
+                                        ),
+                                        color=alt.condition(
+                                            alt.datum.Correlation > 0.5,
+                                            alt.value("white"),
+                                            alt.value("black"),
+                                        ),
+                                    )
+                                    corr_chart_k = (
+                                        heatmap_k + text_layer_k
+                                    ).properties(
+                                        height=380,
+                                        title=(
+                                            "Method vs Method Kendall's Tau-b "
+                                            "Correlation"
+                                        ),
+                                    )
+                                    st.altair_chart(
+                                        corr_chart_k, use_container_width=True
+                                    )
+
+                            # --- MULTI-METHOD COMPARISON EXCEL DOWNLOAD ---
+                            st.markdown("---")
+                            st.markdown("### 📥 Complete Multi-Method Comparison Excel Workbook")
+                            st.caption(
+                                "Download an all-in-one Excel workbook containing the Comparison & Agreement "
+                                "summary tab (Table 3 agreement table, side-by-side rankings, pairwise correlation "
+                                "matrices) followed by dedicated full formula calculation sheets for every active selected method."
+                            )
+                            try:
+                                comparison_workbook_bytes = build_comparison_excel_download(
+                                    matrix_to_calc,
+                                    dict(weights),
+                                    dict(directions),
+                                    tuple(active_compare_methods),
+                                    bench,
+                                    dict(parameters),
+                                    COMPARISON_EXCEL_EXPORT_REVISION,
+                                )
+                                st.download_button(
+                                    "📊 Download Multi-Method Comparison Excel Workbook",
+                                    data=comparison_workbook_bytes,
+                                    file_name=COMPARISON_EXCEL_EXPORT_FILENAME,
+                                    mime=(
+                                        "application/vnd.openxmlformats-officedocument."
+                                        "spreadsheetml.sheet"
+                                    ),
+                                    use_container_width=True,
+                                    key="download_multi_method_comparison_excel",
+                                )
+                            except Exception as exc:
+                                st.error(
+                                    f"The multi-method comparison Excel workbook could not be generated: {exc}"
+                                )
+
+                # --- TABLE 4 DETERMINISTIC WEIGHT ROBUSTNESS ---
+                with tab_comp_weights:
+                    st.markdown(
+                        f"Evaluate how the **{mcdm_method}** rankings perform across alternative "
+                        "objective and deterministic weighting models (*Equal, PCA, CRITIC, Entropy, MEREC, Standard Deviation*) "
+                        "relative to the official / configured baseline weights."
+                    )
+
+                    available_scenarios = generate_deterministic_weight_scenarios(
+                        matrix_to_calc, directions, baseline_weights=dict(weights) if weights else None
+                    )
+                    num_alts_w = len(matrix_to_calc)
+                    default_k1_w, default_k2_w = get_default_jaccard_cutoffs(num_alts_w)
+
+                    col_w1, col_w2 = st.columns([3, 2])
+                    with col_w1:
+                        selected_scenarios = st.multiselect(
+                            "Select Weight Scenarios",
+                            options=list(available_scenarios.keys()),
+                            default=list(available_scenarios.keys()),
+                            key="weight_robustness_scenarios",
+                        )
+                    with col_w2:
+                        baseline_scenario_options = (
+                            selected_scenarios if selected_scenarios else list(available_scenarios.keys())
+                        )
+                        baseline_scenario = st.selectbox(
+                            "Baseline Scenario for Comparison",
+                            options=baseline_scenario_options,
+                            index=0,
+                            key="weight_robustness_baseline",
+                            help="The reference weight scenario used to evaluate rho, displacement, and top-K overlap.",
+                        )
+
+                    top_k_options = [k for k in [3, 5, 10, 20] if k <= num_alts_w]
+                    if not top_k_options:
+                        top_k_options = [max(1, min(2, num_alts_w))]
+                    top_k_default_idx = len(top_k_options) - 1
+
+                    col_k1, col_k2 = st.columns([2, 3])
+                    with col_k1:
+                        top_k_val = st.selectbox(
+                            f"Top-K Overlap Threshold (K ≤ {num_alts_w})",
+                            options=top_k_options,
+                            index=top_k_default_idx,
+                            key="weight_robustness_top_k",
+                            help="Number of top-ranked alternatives evaluated for Jaccard subset overlap with baseline.",
+                        )
+
+                    active_scenarios = {
+                        k: available_scenarios[k] for k in selected_scenarios if k in available_scenarios
+                    }
+
+                    current_robustness_fingerprint = analysis_fingerprint(
+                        baseline_fingerprint=st.session_state.calculation_fingerprint,
+                        analysis_name="weight_robustness",
+                        controls={
+                            "baseline": baseline_scenario,
+                            "top_k": top_k_val,
+                            "scenarios": list(active_scenarios.keys()),
+                        },
+                    )
+
+                    run_robustness = st.button(
+                        f"🚀 Run {mcdm_method} Weight Robustness Analysis",
+                        type="primary",
+                        use_container_width=True,
+                        disabled=len(active_scenarios) < 2,
+                        key="run_weight_robustness_analysis",
+                    )
+
+                    if run_robustness:
+                        st.session_state.weight_robustness_result = None
+                        st.session_state.weight_robustness_fingerprint = None
+                        try:
+                            t4_df, rk_df, wt_df = evaluate_weight_robustness(
+                                mcdm_method,
+                                matrix_to_calc,
+                                directions,
+                                active_scenarios,
+                                baseline_scenario=baseline_scenario,
+                                parameters=parameters,
+                                top_k=top_k_val,
+                            )
+                        except Exception as exc:
+                            st.error(f"Weight robustness analysis failed: {exc}")
+                        else:
+                            st.session_state.weight_robustness_result = {
+                                "table_4": t4_df,
+                                "rankings": rk_df,
+                                "weights": wt_df,
+                                "baseline": baseline_scenario,
+                                "top_k": top_k_val,
+                            }
+                            st.session_state.weight_robustness_fingerprint = current_robustness_fingerprint
+
+                    robustness_output = st.session_state.weight_robustness_result
+                    if robustness_output is None:
+                        st.info("Select the weight scenarios above, then click **Run Weight Robustness Analysis**.")
+                    elif st.session_state.weight_robustness_fingerprint != current_robustness_fingerprint:
+                        st.warning("Settings changed—rerun the analysis to refresh Table 4.")
+                    else:
+                        t4_df = robustness_output["table_4"]
+                        rk_df = robustness_output["rankings"]
+                        wt_df = robustness_output["weights"]
+                        b_name = robustness_output["baseline"]
+                        k_val = robustness_output["top_k"]
+
+                        st.markdown(f"### 📋 Table 4: {mcdm_method} Robustness under Alternative Deterministic Weights")
+                        st.dataframe(
+                            t4_df,
+                            use_container_width=True,
+                            column_config={
+                                col: st.column_config.NumberColumn(
+                                    col,
+                                    format="%d" if "displacement" in col.lower() else (
+                                        "%.3f" if "overlap" in col.lower() or "jaccard" in col.lower() else (
+                                            "%.2f" if "mard" in col.lower() else "%.4f"
+                                        )
+                                    ),
+                                )
+                                for col in t4_df.columns
+                            },
+                        )
+                        st.caption(
+                            f"**Note.** Table 4 reports the rank stability of **{mcdm_method}** under alternative deterministic weights. "
+                            f"Reference baseline = **{b_name}**. Top-{k_val} overlap measures Jaccard subset similarity."
+                        )
+
+                        # Downloads
+                        col_dl1, col_dl2 = st.columns(2)
+                        with col_dl1:
+                            st.download_button(
+                                "📥 Download Table 4 (CSV)",
+                                data=t4_df.to_csv().encode("utf-8"),
+                                file_name=f"{mcdm_method.lower()}_weight_robustness_table4.csv",
+                                mime="text/csv",
+                                use_container_width=True,
+                                key="dl_table4_csv",
+                            )
+                        with col_dl2:
+                            try:
+                                wb_bytes = build_weight_robustness_excel_workbook(
+                                    t4_df, rk_df, wt_df, method=mcdm_method, baseline_name=b_name
+                                )
+                                st.download_button(
+                                    "📗 Download Complete Weight Robustness Workbook (XLSX)",
+                                    data=wb_bytes,
+                                    file_name=f"{mcdm_method.lower()}_weight_robustness_workbook.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    use_container_width=True,
+                                    key="dl_weight_robustness_xlsx",
+                                )
+                            except Exception as exc:
+                                st.error(f"Excel workbook export failed: {exc}")
+
+                        st.markdown("---")
+                        tab_r1, tab_r2, tab_r3 = st.tabs([
+                            "🏆 Rankings Across Scenarios",
+                            "⚖️ Criteria Weights Across Scenarios",
+                            "🔗 Scenario Correlation Heatmap",
+                        ])
+
+                        with tab_r1:
+                            st.markdown("#### Alternative Rankings by Weight Scenario")
+                            st.dataframe(rk_df, use_container_width=True)
+
+                            rk_reset = rk_df.reset_index()
+                            if rk_reset.columns[0] != "Alternative":
+                                rk_reset.rename(columns={rk_reset.columns[0]: "Alternative"}, inplace=True)
+                            rk_melted = rk_reset.melt(id_vars="Alternative", var_name="Weight Scenario", value_name="Rank")
+                            unique_alts_w = sorted(rk_melted["Alternative"].unique(), key=natural_sort_key)
+
+                            bump_chart = (
+                                alt.Chart(rk_melted)
+                                .mark_line(point=alt.OverlayMarkDef(filled=False, fill="white", size=100))
+                                .encode(
+                                    x=alt.X("Weight Scenario:N", title="Weight Scenario", sort=list(active_scenarios.keys())),
+                                    y=alt.Y("Rank:O", title="Rank", sort="descending"),
+                                    color=alt.Color("Alternative:N", sort=unique_alts_w, legend=alt.Legend(title="Alternatives", orient="right")),
+                                    tooltip=["Alternative", "Weight Scenario", "Rank"],
+                                )
+                                .properties(height=380, title=f"Alternative Ranking Shifts across Weight Scenarios ({mcdm_method})")
+                                .interactive()
+                            )
+                            st.altair_chart(bump_chart, use_container_width=True)
+
+                        with tab_r2:
+                            st.markdown("#### Criterion Weights by Weight Scenario")
+                            st.dataframe(
+                                wt_df.style.format("{:.4f}"),
+                                use_container_width=True,
+                            )
+                            wt_reset = wt_df.reset_index()
+                            if wt_reset.columns[0] != "Criterion":
+                                wt_reset.rename(columns={wt_reset.columns[0]: "Criterion"}, inplace=True)
+                            wt_melted = wt_reset.melt(id_vars="Criterion", var_name="Weight Scenario", value_name="Weight")
+                            wt_chart = (
+                                alt.Chart(wt_melted)
+                                .mark_bar()
+                                .encode(
+                                    x=alt.X("Criterion:N", title="Criterion"),
+                                    y=alt.Y("Weight:Q", title="Normalized Weight"),
+                                    color=alt.Color("Weight Scenario:N", title="Scenario"),
+                                    xOffset="Weight Scenario:N",
+                                    tooltip=["Criterion", "Weight Scenario", alt.Tooltip("Weight:Q", format=".4f")],
+                                )
+                                .properties(height=350, title="Criteria Weights Distribution Across Scenarios")
+                            )
+                            st.altair_chart(wt_chart, use_container_width=True)
+
+                        with tab_r3:
+                            st.markdown("#### Pairwise Scenario Rank Correlation (Spearman's ρ)")
+                            scen_corr = calculate_pairwise_spearman_matrix(rk_df)
+                            scen_corr_melt = scen_corr.reset_index().melt("index")
+                            scen_corr_melt.columns = ["Scenario 1", "Scenario 2", "Correlation"]
+                            scen_base = alt.Chart(scen_corr_melt).encode(
+                                x=alt.X("Scenario 1:O", sort=list(active_scenarios.keys())),
+                                y=alt.Y("Scenario 2:O", sort=list(active_scenarios.keys())),
+                            )
+                            scen_heat = scen_base.mark_rect().encode(
+                                color=alt.Color("Correlation:Q", scale=alt.Scale(domain=[-1, 1], scheme="redblue"), title="Spearman's ρ"),
+                                tooltip=["Scenario 1", "Scenario 2", alt.Tooltip("Correlation", format=".3f")],
+                            )
+                            scen_text = scen_base.mark_text(baseline="middle").encode(
+                                text=alt.Text("Correlation:Q", format=".2f"),
+                                color=alt.condition(alt.datum.Correlation > 0.5, alt.value("white"), alt.value("black")),
+                            )
+                            st.altair_chart(
+                                (scen_heat + scen_text).properties(height=350, title="Weight Scenarios Rank Correlation Heatmap"),
+                                use_container_width=True,
+                            )
+
 
